@@ -1,0 +1,59 @@
+# -*- mode: snippet -*-
+# name: k8s_deployment
+# key: deploy
+# --
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "$0"
+  namespace: ""
+spec:
+  selector:
+    matchLabels:
+      app: ""
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: ""
+    spec:
+      imagePullSecrets:
+      - name: "プライベートリポジトリからpullするためのsecret"
+      imagePullPolicy: Always
+      containers:
+      - name: "コンテナ名をここに入力"
+        image: "イメージ名をここに入力"
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 1Gi
+          limits:
+            cpu: 1000m
+            memory: 4Gi
+        env:
+        - name: ""
+          value: "" 
+        livenessProbe:
+          exec:
+            command: [""]
+          initialDelaySeconds: 30
+          timeoutSeconds: 10
+          periodSeconds: 60
+          successThreshold: 1
+          failureThreshold: 3
+        volumeMounts:
+        - name: pvc
+          mountPath: ""
+        - name: empyd
+          mountPath: ""
+        - name: configm
+          mountPath: ""
+      volumes:
+      - name: pvc
+        persistentVolumeClaim:
+          claimName: "PVC名をここに入力"
+      - name: configm
+        configMap:
+          name: "Config Map名をここに入力"
+      - name: emptyd
+        emptyDir: {}
