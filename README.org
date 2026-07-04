@@ -44,12 +44,10 @@ load順が重要になる場合がある(例: keybind-manage.el は package-mana
 |----+-------------------------------------+-----------------------------------------------------------------------|
 |  1 | GNU Emacs                          | Emacs本体。30以降を推奨(eglot/tree-sitter周りの改善を利用するため)     |
 |  2 | [[https://github.com/yuru7/HackGen/releases][HackGenFont]]                         | 等幅Nerdフォント                                                       |
-|  3 | pandoc                             | Markdownプレビュー用                                                   |
-|  4 | cfn-lint                           | CloudFormationテンプレートのLint用(pip install cfn-lint)               |
-|  5 | Node.js / npm (fnm等推奨)          | Claude Code CLI本体、TypeScript/Shell系の言語サーバのインストールに必要 |
-|  6 | Go                                 | Go言語の編集・gofmt(goimports)・gopls(言語サーバ)に必要                |
-|  7 | CMake / libtool / Cコンパイラ      | vterm(ネイティブモジュール)のビルドに必要。macOSはXcode Command Line Toolsで揃う |
-|  8 | [[https://docs.claude.com/claude-code][Claude Code CLI]] (`claude`コマンド) | package-manage.el のvterm/gptel連携から呼び出す                        |
+|  3 | Node.js / npm (fnm等推奨)          | Claude Code CLI本体、TypeScript/Shell系の言語サーバのインストールに必要 |
+|  4 | Go                                 | Go言語の編集・gofmt(goimports)・gopls(言語サーバ)に必要                |
+|  5 | CMake / libtool / Cコンパイラ      | vterm(ネイティブモジュール)のビルドに必要。macOSはXcode Command Line Toolsで揃う |
+|  6 | [[https://docs.claude.com/claude-code][Claude Code CLI]] (`claude`コマンド) | package-manage.el のvterm/gptel連携から呼び出す                        |
 
 
 *** その他の準備
@@ -58,6 +56,60 @@ load順が重要になる場合がある(例: keybind-manage.el は package-mana
 - 環境変数ANTHROPIC_API_KEY(gptelのAnthropicバックエンドで使用)
 - (macOS・任意) GNU coreutils の `gls` を入れておくとDiredの表示が改善する(`--group-directories-first`等)。未導入でも標準のlsで動作する
 - (macOS・任意) `trash` コマンドを入れておくと削除がゴミ箱に移動する(未導入時はEmacs標準の削除挙動になる)
+
+** 初回起動(パッケージの事前ダウンロード)
+
+新しいマシンでの初回起動は、straight.el が lockfile 記載の全パッケージ(約90個)を clone/build するため時間がかかる。特に GUI(Emacs.app)から起動するとダウンロード中は画面が無反応になり「固まった」ように見える。下記の手順で *シェルから事前取得* しておくと、進捗がターミナルに出て、GUI をロックせずに済む。
+
+*** 手順
+
+1. (推奨) recipe リポジトリ nongnu-elpa を軽量取得しておく
+   straight は既定で nongnu-elpa を [[https://git.savannah.gnu.org][git.savannah.gnu.org]] から *全ブランチ* clone する。savannah は帯域が細く、これが初回フリーズの主因。単一ブランチ・浅い clone にしておけば数秒で済み、straight は origin URL が一致するためこれをそのまま使う(重い再取得をしない)。
+
+   #+begin_src sh
+   mkdir -p ~/.emacs.d/straight/repos
+   git clone --single-branch --depth 1 \
+     https://git.savannah.gnu.org/git/emacs/nongnu.git \
+     ~/.emacs.d/straight/repos/nongnu-elpa
+   #+end_src
+
+
+2. init.el が参照する空ディレクトリを用意する(無いと load-path 構築で停止する)
+
+   #+begin_src sh
+   mkdir -p ~/.emacs.d/public_repos
+   #+end_src
+
+
+3. バッチ(非GUI)でパッケージを一括 clone / build する
+
+   #+begin_src sh
+   emacs --batch -l ~/.emacs.d/init.el
+   #+end_src
+
+   straight.el のブートストラップ → 各パッケージの clone/build が進み、進捗がターミナルに出る。~EXIT 0~ で終われば ~straight/repos/~ に約90個のリポジトリが揃う。事前に PATH へ go/npm 等を通した状態で実行すると、言語サーバ連携まわりの警告も減る。
+
+
+4. 通常どおり GUI で起動する。パッケージは取得済みなので固まらない。
+
+*** Emacs 30 対応(設定側で対処済み)
+
+Emacs 30 では pin している一部パッケージがそのままでは動かないため、設定側で対処している(新規に lockfile を作り直す際も同様の対処が要る)。
+
+- ~init.el~: straight.el が参照する ~native-comp-deferred-compilation-deny-list~(Emacs 30 で削除)を、未定義なら補う互換シムを bootstrap 前に定義している。これが無いと straight のネイティブコンパイル時に ~void-variable~ で停止する。
+- ~conf/package-manage.el~: git-gutter+ が依存宣言する git-commit の recipe が現行 recipe リポジトリから消滅した(magit に統合された)ため、magit リポ内の ~lisp/git-commit.el~ を指す recipe を明示して解決させている。
+
+
+*** 既知の未解決問題(transient / magit)
+
+起動時に次のような警告が出ることがある(use-package が捕捉するため起動自体は継続する)。
+
+#+begin_example
+Invalid function: static-when
+transient--init-suffix-key is already defined as something else than a generic function
+#+end_example
+
+pin された transient 0.13.5 が使う ~static-when~(compat 由来のマクロ)がこの環境で解決されず、transient のロードが不完全になって組込 transient 0.7.2.2 と generic function 定義が衝突するのが原因。~straight-rebuild-package~ では直らない(pin バージョンの組み合わせ不整合)。起動はできるが magit が正常動作しないことがあるため、直すには transient / compat の pin を整合させて ~M-x straight-freeze-versions~ で固定し直す必要がある。
 
 *** 言語サーバー(eglot)を使う場合
 

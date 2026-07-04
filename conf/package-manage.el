@@ -155,8 +155,13 @@
   :custom-face
   (vhl/default-face ((nil (:foreground "#FF3333" :background "#FFCDCD")))))
 
-
-
+;;counselはkeybind-manage.elのcounsel-recentf等で使うため明示導入する。
+;;counsel/swiper/ivyは同じswiperリポジトリ内の別パッケージで、
+;;counselを導入すると依存のswiper・ivyも同時に取得される。
+(use-package counsel
+  :straight t
+  :defer t
+  )
 
 ;;アイコンの追加
 (use-package all-the-icons-ivy
@@ -672,7 +677,13 @@ The description of ARG is in `neo-buffer--execute'."
   :custom
   (ivy-posframe-display-functions-alist '((t . ivy-posframe-display-at-window-center))))
 
-
+;;git-commitパッケージをstraight.elで導入する（use-packageを介さず直接呼ぶ）
+(straight-use-package
+ '(git-commit :type git
+              :host github
+              :repo "magit/magit" ;
+              ;;リポジトリ全体ではなくlisp/git-commit.elだけをビルド対象にする
+              :files ("lisp/git-commit.el")))
 
 ;;カレントバッファがGit管理下の場合、左に直前のコミットの差分を表示する
 (use-package git-gutter+
@@ -720,6 +731,7 @@ The description of ARG is in `neo-buffer--execute'."
   :straight t
   :commands vterm
   :init
+  (setq vterm-max-scrollback 100000)   ; 上限まで引き上げ
   ;; -------------------------------------------------------------------
   ;; 0. 【共通】vtermバッファをモニターの向きに関わらず下側に分割表示する
   ;;    入力欄が見えれば十分な小さめのサイズ(3:7)で開始する。
@@ -755,7 +767,15 @@ vtermウィンドウはmy/vterm-window-ratio程度の小さめのサイズで開
 POP-FN(省略時はmy/vterm-pop-to-buffer)でウィンドウへの表示方法を指定できる。"
     (let ((pop-fn (or pop-fn #'my/vterm-pop-to-buffer)))
       (if (get-buffer buffer-name)
-          (progn (funcall pop-fn buffer-name) (get-buffer buffer-name))
+          (let ((existing-win (get-buffer-window buffer-name 0)))
+            ;; すでにいずれかの可視フレームでウィンドウ表示されていれば、
+            ;; 新たに分割せずそのウィンドウを選択するだけにする。
+            (if existing-win
+                (progn
+                  (select-frame-set-input-focus (window-frame existing-win))
+                  (select-window existing-win))
+              (funcall pop-fn buffer-name))
+            (get-buffer buffer-name))
         ;; vterm-mode自体はautoload対象外のため、明示的にvterm.elをロードする
         (require 'vterm)
         (let ((buf (generate-new-buffer buffer-name)))
@@ -876,7 +896,7 @@ POP-FN(省略時はmy/vterm-pop-to-buffer)でウィンドウへの表示方法�
                 (when (eq (window-frame win) (selected-frame))
                   (delete-window win)))
               (select-frame-set-input-focus (make-frame '((name . "Claude Code"))))
-              (switch-to-buffer buf)))))))) 
+              (switch-to-buffer buf))))))))
 ;; =====================================================================
 ;; 3. gptel 設定（エディタ一体型インライン書き換え & チャット用）
 ;; =====================================================================

@@ -21,6 +21,10 @@
 
 ;; パッケージマネージャ
 ;;https://github.com/radian-software/straight.el
+;;native-comp-deferred-compilation-deny-listはEmacs30で削除されたため、bootstrapでのネイティブコンパイル時にvoid-variableエラーになる。
+;;未定義なら補う
+(unless (boundp 'native-comp-deferred-compilation-deny-list)
+  (defvar native-comp-deferred-compilation-deny-list nil))
 (defvar bootstrap-version)
 (let ((bootstrap-file
        (expand-file-name "straight/repos/straight.el/bootstrap.el" user-emacs-directory))
