@@ -43,7 +43,8 @@
 (electric-pair-mode 1)               ; 自動閉じ括弧
 (tool-bar-mode -1)                   ; ツールバーを非表示
 (menu-bar-mode -1)                   ; メニューバーを非表示
-(scroll-bar-mode -1)                 ; スクロールバーを非表示
+(when (fboundp 'scroll-bar-mode)
+  (scroll-bar-mode -1))                ; スクロールバーを非表示
 (setq initial-scratch-message "")    ; scratchの初期メッセージ消去
 (fset 'yes-or-no-p 'y-or-n-p)        ; "yes or no" の選択を "y or n" にする
 (global-hl-line-mode 1)              ; カーソル行をハイライト

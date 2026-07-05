@@ -168,6 +168,14 @@
           evil-normal-state-map)
 (which-key-add-key-based-replacements "SPC f e l" "open-language-config")
 
+(bind-key "SPC f e a"
+          '(lambda()
+             (interactive)
+             (switch-to-buffer
+              (find-file-noselect "~/.emacs.d/conf/ai-agent.el")))
+          evil-normal-state-map)
+(which-key-add-key-based-replacements "SPC f e a" "open-aiagent-config")
+
 ;;-----------------------------------------------------------
 ;; その他
 ;;-----------------------------------------------------------
@@ -197,83 +205,58 @@
 (bind-key "SPC v s" 'my/run-vterm-current-dir evil-normal-state-map)
 
 ;;-----------------------------------------------------------
-;; Claude Code
+;; AI Agents (claude / agy / bob)
+;; コマンド本体は conf/ai-agent.el 側。ここではキーバインドのみ。
 ;;-----------------------------------------------------------
-;; プロジェクトルートでClaude Codeを起動する（定義はconf/package-manage.el）
-(bind-key "SPC v c" 'my/run-claude-code evil-normal-state-map)
+(which-key-add-key-based-replacements "SPC a" "AI Agents")
+(bind-key "SPC a g" 'my/run-agy evil-normal-state-map)
+(bind-key "SPC a c" 'my/run-claude-code evil-normal-state-map)
+(bind-key "SPC a b" 'my/run-bob evil-normal-state-map)
+;; SPC a f: 今ウィンドウに表示中のAIエージェントを別フレームへ切り出す /
+;; SPC a w: 別フレームから元のフレームの分割へ戻す。
+;; どのエージェントかは表示中のバッファから自動判定するので、エージェントごとに
+;; キーを分けず、1つのキーで扱える(コマンド本体は conf/ai-agent.el)。
+(bind-key "SPC a f" 'my/ai-agent-pop-displayed-to-frame evil-normal-state-map)
+(bind-key "SPC a w" 'my/ai-agent-dock-displayed-to-window evil-normal-state-map)
+(bind-key "SPC a a" 'my/run-ai-tool-prompt evil-normal-state-map)
+;; SPC a s: 現在のプロジェクトのClaude Codeセッション全文を専用バッファで表示。
+;; claudeはvtermに過去分が残らないので、~/.claude/projectsのトランスクリプトから復元する。
+(bind-key "SPC a s" 'my/claude-code-show-session evil-normal-state-map)
+(which-key-add-key-based-replacements "SPC a f" "pop-to-frame")
+(which-key-add-key-based-replacements "SPC a w" "back-to-window")
+(which-key-add-key-based-replacements "SPC a s" "claude-session")
 
-;; Claude Codeを別フレームに切り出す（定義はconf/package-manage.el）
-(bind-key "SPC c f" 'my/claude-code-pop-to-frame evil-normal-state-map)
-
-;; Normalステートで q を押したらウィンドウを閉じる(バッファ・プロセスは残す)。
-;; my/claude-code-mode-map経由なので、プレーンなvterm端末には影響しない。
-;; quit-windowはdisplay-buffer経由で作られたウィンドウのquit-restoreパラメータに
-;; 依存するため、split-windowで直接作ったこのウィンドウには効かない。
-;; そのため単純にdelete-windowでウィンドウ自体を閉じる。
-(defun my/claude-code-quit-window ()
-  "Claude Codeのウィンドウを閉じる(バッファ・プロセスは残す)。"
-  (interactive)
-  (when (> (count-windows) 1)
-    (delete-window)))
-
+;; 各AIエージェントのバッファ内キーバインド。
+;;   q        … ウィンドウを閉じる(バッファ・プロセスは残す)
+;;   C-c C-g … 入力欄をクリア(ESC送信)
+;;   C-c C-w … 別フレームから元のフレームの分割ウィンドウへ戻す
+;;             (別フレーム側のバッファでそのまま押せるよう normal/insert 両方に束縛)
+;; ai-agent.el の my/ai-agents レジストリに登録された全モードマップへ一括束縛するので、
+;; エージェントを増やしても、ここを触らずに自動で対応できる。
 (with-eval-after-load 'evil
-  (evil-define-key 'normal my/claude-code-mode-map
-    "q" #'my/claude-code-quit-window))
+  (dolist (agent my/ai-agents)
+    (let ((mode-map (symbol-value (plist-get (cdr agent) :mode-map))))
+      (evil-define-key 'normal mode-map "q" #'my/ai-tool-quit-window)
+      (evil-define-key 'insert mode-map (kbd "C-c C-g") #'vterm-send-escape)
+      (evil-define-key 'normal mode-map (kbd "C-c C-w") #'my/ai-agent-back-to-window)
+      (evil-define-key 'insert mode-map (kbd "C-c C-w") #'my/ai-agent-back-to-window))))
 
-;; Insertステートで C-c C-g を押したら、Claude Codeの入力欄をクリアする。
-;; プレーンなEscはevilがinsert->normalの切り替えに横取りしてしまい、
-;; vtermプロセス(claude)側にESCが届かないため、vterm-send-escapeで
-;; evilの状態に関係なく確実にESCを送る。
-;; my/claude-code-mode-map経由なので、プレーンなvterm端末には影響しない。
-(with-eval-after-load 'evil
-  (evil-define-key 'insert my/claude-code-mode-map
-    (kbd "C-c C-g") #'vterm-send-escape))
-
-;; Visualステートで選択中のテキストを、ファイルパスと行:列範囲付きで
-;; Claude Codeのプロンプトに貼り付ける。
-;; 例:
-;;   /path/to/file.el L10:R30 ~L20:R2
-;;   ```
-;;   (選択したテキスト)
-;;   ```
-;; vterm-send-stringのpaste-p(bracketed paste)を使うので、
-;; 複数行になっても改行のたびに送信されず、claude側で複数行入力として扱われる。
-(defun my/send-visual-selection-to-claude ()
-  "Visualステートで選択中のテキストを、ファイルパスと行:列範囲付きで
-Claude Codeのプロンプトに貼り付ける。
-対応するClaude Codeバッファが無ければ起動してから送る。"
-  (interactive)
-  (unless (evil-visual-state-p)
-    (user-error "Visualステートで選択してから実行してください"))
-  (let* ((beg (region-beginning))
-         (end (region-end))
-         (text (buffer-substring-no-properties beg end))
-         (file (or (buffer-file-name) (buffer-name)))
-         (start-line (line-number-at-pos beg))
-         (start-col (1+ (save-excursion (goto-char beg) (current-column))))
-         (end-line (line-number-at-pos end))
-         (end-col (1+ (save-excursion (goto-char end) (current-column))))
-         (header (format "%s L%d:R%d ~L%d:R%d"
-                          file start-line start-col end-line end-col))
-         (payload (format "%s\n```\n%s\n```\n" header text))
-         (buffer-name (my/claude-code-buffer-name))
-         (already-running (get-buffer buffer-name)))
-    (evil-normal-state)
-    (my/run-claude-code)
-    (if already-running
-        (with-current-buffer buffer-name
-          (vterm-send-string payload t))
-      ;; 起動直後はclaudeの準備ができるまで少し待ってから送る
-      (run-at-time 1.5 nil
-                   (lambda (buf txt)
-                     (when (buffer-live-p buf)
-                       (with-current-buffer buf
-                         (vterm-send-string txt t))))
-                   (get-buffer buffer-name) payload))))
-
-(bind-key "SPC c s" 'my/send-visual-selection-to-claude evil-visual-state-map)
-;; Visualステートでは単に c で送れるようにする(Evil標準のchangeコマンドを上書き)
-(bind-key "c" 'my/send-visual-selection-to-claude evil-visual-state-map)
+;; Visualステートの選択テキストをAIへ送る(本体は my/send-visual-selection-to-ai)。
+;;   c / SPC a s s … デフォルトのAIツール(SPC a a で切替)へ
+;;   SPC a s c/g/b … claude / agy / bob を明示指定
+(which-key-add-key-based-replacements "SPC a s" "send-selection-to-ai")
+(bind-key "SPC a s s" 'my/send-visual-selection-to-ai evil-visual-state-map)
+(bind-key "SPC a s c"
+          (lambda () (interactive) (my/send-visual-selection-to-ai "claude"))
+          evil-visual-state-map)
+(bind-key "SPC a s g"
+          (lambda () (interactive) (my/send-visual-selection-to-ai "agy"))
+          evil-visual-state-map)
+(bind-key "SPC a s b"
+          (lambda () (interactive) (my/send-visual-selection-to-ai "bob"))
+          evil-visual-state-map)
+;; Visualステートでは単に c でデフォルトのAIツールへ送る(Evil標準のchangeを上書き)。
+(bind-key "c" 'my/send-visual-selection-to-ai evil-visual-state-map)
 
 ;;-----------------------------------------------------------
 ;; vterm
@@ -321,5 +304,3 @@ Claude Codeのプロンプトに貼り付ける。
   (define-key vterm-mode-map (kbd "S-<return>") #'my/vterm-send-newline)
   (define-key vterm-mode-map [return] #'my/vterm-submit-and-shrink)
   (define-key vterm-mode-map (kbd "RET") #'my/vterm-submit-and-shrink))
-
-

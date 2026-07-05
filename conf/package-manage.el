@@ -62,6 +62,10 @@
   (doom-modeline-buffer-encoding t)
   (doom-modeline-indent-info t)
   (doom-modeline-lsp t)
+  (doom-modeline-flycheck t)
+  ;; チェッカー(flycheck)の結果を error/warning/info すべて個別に表示する。
+  ;; デフォルト(t)は最重要度の1つの数字にまとめてしまうため nil にする。
+  (doom-modeline-checker-simple-format nil)
   :hook
   (after-init . doom-modeline-mode)
   :after (evil)
@@ -417,7 +421,8 @@ The description of ARG is in `neo-buffer--execute'."
 
 ;; diredはevilのnormal-stateだと単一キーのネイティブコマンド(R:rename, C:copy等)が
 ;; vi的キーバインドと衝突するため、emacs-stateで起動して素のdired-mode-mapを使う
-(evil-set-initial-state 'dired-mode 'emacs)
+(with-eval-after-load 'evil
+  (evil-set-initial-state 'dired-mode 'emacs))
 
 (use-package dired-subtree
   :straight t
@@ -724,9 +729,12 @@ The description of ARG is in `neo-buffer--execute'."
   ;; バッファが書き換わった際のミニバッファへの通知を静かにする
   (auto-revert-verbose nil))
 
+
 ;; =====================================================================
-;; 2. vterm 設定（自律エージェント Claude Code 起動用）
+;; 2. vterm 設定（ターミナル本体。プレーン端末やAIエージェント起動の共通基盤）
 ;; =====================================================================
+;; vterm自体はAIエージェント専用ではなく汎用のターミナル。AIエージェント固有の
+;; コマンド類はai-agent.el側に置き、ここではvterm本体と共通ヘルパーのみを持つ。
 (use-package vterm
   :straight t
   :commands vterm
@@ -785,16 +793,6 @@ POP-FN(省略時はmy/vterm-pop-to-buffer)でウィンドウへの表示方法�
           buf))))
 
   ;; -------------------------------------------------------------------
-  ;; 0.5 Claude Codeを表示しているvtermバッファを識別するためのマイナーモード。
-  ;;     プレーンなvterm端末(my/run-vterm-current-dir)とは区別し、
-  ;;     Claude Code固有のキーバインドやフックはこのモード経由で追加していく。
-  ;; -------------------------------------------------------------------
-  (define-minor-mode my/claude-code-mode
-    "Claude Codeをvtermでやりとりしているバッファであることを示すマイナーモード。"
-    :lighter " Claude"
-    :keymap (make-sparse-keymap))
-
-  ;; -------------------------------------------------------------------
   ;; 0.6 プロセス終了時、バッファだけでなくそれを表示していたウィンドウも閉じる。
   ;;     バッファ自体はvterm-kill-buffer-on-exit(デフォルトt)で既に自動削除されるが、
   ;;     ウィンドウ(split)は残ってしまうため、exitで両方消えるようにする。
@@ -817,102 +815,4 @@ POP-FN(省略時はmy/vterm-pop-to-buffer)でウィンドウへの表示方法�
            ;; 現在のフォルダ名を取得（バッファ名用）
            (dir-name (file-name-nondirectory (directory-file-name current-dir)))
            (buffer-name (format "*vterm:%s*" dir-name)))
-      (my/vterm-get-or-create buffer-name)))
-
-  ;; -------------------------------------------------------------------
-  ;; 2. 【既存】プロジェクトルートで Claude Code を起動する
-  ;; -------------------------------------------------------------------
-  ;; vc-root-dirはファイル自体がVCに追跡されている場合しか使えないため、
-  ;; .gitの存在だけでルートを判定できるproject-currentを使う
-  (defun my/claude-code-project-root ()
-    "現在のプロジェクトルートを返す(project.elが検出できない場合はdefault-directory)。"
-    (let ((proj (project-current)))
-      (expand-file-name (if proj (project-root proj) default-directory))))
-
-  (defun my/claude-code-buffer-name (&optional project-root)
-    "PROJECT-ROOT(省略時は現在のプロジェクトルート)に対応するClaude Codeバッファ名を返す。"
-    (let* ((root (or project-root (my/claude-code-project-root)))
-           (project-name (file-name-nondirectory (directory-file-name root))))
-      (format "*claude-code:%s*" project-name)))
-
-  (defun my/run-claude-code ()
-    "現在のプロジェクトルートで Claude Code を起動します。"
-    (interactive)
-    (let* ((project-root (my/claude-code-project-root))
-           (buffer-name (my/claude-code-buffer-name project-root))
-           (existed (get-buffer buffer-name))
-           (buf (my/vterm-get-or-create buffer-name #'my/vterm-pop-to-buffer-oriented)))
-      (with-current-buffer buf
-        (my/claude-code-mode 1))
-      (unless existed
-        (with-current-buffer buf
-          (vterm-send-string (format "cd %s && claude\n" (shell-quote-argument project-root)))))))
-
-  ;; -------------------------------------------------------------------
-  ;; 2.5 【新規】Claude Codeを別フレームに切り出す
-  ;; -------------------------------------------------------------------
-  (defun my/claude-code-pop-to-frame ()
-    "現在のプロジェクトのClaude Codeバッファを別フレームに切り出す。
-すでに他のフレームで表示されていればそのフレームを選択するだけにする。
-現在のフレームでウィンドウ分割表示されていれば、そのウィンドウは閉じる。
-別フレームに出すだけなので、現在のフレームでの分割表示(split-window)は行わない。"
-    (interactive)
-    (let* ((project-root (my/claude-code-project-root))
-           (buffer-name (my/claude-code-buffer-name project-root))
-           (existed (get-buffer buffer-name))
-           (other-frame-win
-            (and existed
-                 (seq-find (lambda (win) (not (eq (window-frame win) (selected-frame))))
-                           (get-buffer-window-list existed nil t)))))
-      (if other-frame-win
-          (progn
-            (select-frame-set-input-focus (window-frame other-frame-win))
-            (select-window other-frame-win))
-        (let* ((current-frame-win
-                (and existed
-                     (seq-find (lambda (win) (eq (window-frame win) (selected-frame)))
-                               (get-buffer-window-list existed nil t))))
-               ;; 現在のフレームがすでにこのバッファ専用(唯一のウィンドウ)になっているか
-               (frame-dedicated-p
-                (and current-frame-win
-                     (= (length (window-list (selected-frame))) 1))))
-          (if frame-dedicated-p
-              ;; すでに専用フレームでそのまま表示されているだけなので何もしない
-              (select-window current-frame-win)
-            (let (buf)
-              (if existed
-                  (setq buf existed)
-                (require 'vterm)
-                (setq buf (generate-new-buffer buffer-name))
-                (with-current-buffer buf
-                  (vterm-mode)))
-              (with-current-buffer buf
-                (my/claude-code-mode 1))
-              (unless existed
-                (with-current-buffer buf
-                  (vterm-send-string (format "cd %s && claude\n" (shell-quote-argument project-root)))))
-              ;; 現在のフレームで分割表示されていれば、そのウィンドウだけ閉じる
-              (dolist (win (get-buffer-window-list buf nil t))
-                (when (eq (window-frame win) (selected-frame))
-                  (delete-window win)))
-              (select-frame-set-input-focus (make-frame '((name . "Claude Code"))))
-              (switch-to-buffer buf))))))))
-;; =====================================================================
-;; 3. gptel 設定（エディタ一体型インライン書き換え & チャット用）
-;; =====================================================================
-(use-package gptel
-  :straight t
-  :commands (gptel gptel-menu)
-  :init
-  ;; 環境変数からAPIキーを取得
-  (setq gptel-api-key (lambda () (getenv "ANTHROPIC_API_KEY")))
-  :config
-  ;; Anthropic Claudeをデフォルトに設定
-  (setq gptel-backend (gptel-make-anthropic "Claude"
-                        :key gptel-api-key
-                        :stream t))
-  ;; 好みに応じて sonnet などを指定
-  (setq gptel-model 'claude-3-5-sonnet-latest)
-
-  ;; gptelのバッファをポップアップではなく通常のバッファとして扱いやすくする設定
-  (setq gptel-default-mode 'markdown-mode))
+      (my/vterm-get-or-create buffer-name))))
