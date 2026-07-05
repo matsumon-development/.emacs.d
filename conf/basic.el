@@ -173,3 +173,10 @@
   :if (memq window-system '(mac ns))
   :config
   (exec-path-from-shell-initialize))
+
+;; 【native-comp補足】emacs-mac は native-comp(libgccjit)を使う。.eln生成後の
+;; リンクで gcc のランタイムライブラリ(libemutls_w 等)が必要になるため、
+;; libgccjit と同じバージョンの gcc 本体を入れておくこと(`brew install gcc`)。
+;; gccが無いと "ld: library 'emutls_w' not found" でnative-compが失敗する。
+;; ※ libgccjitはビルド時の絶対パスでgccのlibを解決するため、LIBRARY_PATH等の
+;;    環境変数設定は不要(GUI起動でもgccさえ入っていれば動く)。

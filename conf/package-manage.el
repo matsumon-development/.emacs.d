@@ -128,23 +128,46 @@
 
 
 ;;インデントのスペースに色をつける
-(use-package highlight-indent-guides
-  :straight t
+;; indent-bars に置き換え。二重にガイドが描画されるのを防ぐため
+;; highlight-indent-guides は無効化（設定は参考として残す）。
+;; (use-package highlight-indent-guides
+;;   :straight t
+;;   :diminish
+;;   :hook
+;;   ((prog-mode yaml-mode) . highlight-indent-guides-mode)
+;;   :custom
+;;   (highlight-indent-guides-auto-enabled nil)
+;;   (highlight-indent-guides-responsive t)
+;;   (highlight-indent-guides-method 'fill)
+;;   :custom-face
+;;   (highlight-indent-guides-even-face       ((t (:background "#1F3466" :foreground "#505050"))))
+;;   (highlight-indent-guides-odd-face        ((t (:background "#00464A" :foreground "#505050"))))
+;;   (highlight-indent-guides-top-even-face   ((t (:background "#1F3466" :foreground "#505050"))))
+;;   (highlight-indent-guides-top-odd-face    ((t (:background "#00464A" :foreground "#505050"))))
+;;   (highlight-indent-guides-stack-even-face ((t (:background "#1F3466" :foreground "#505050"))))
+;;   (highlight-indent-guides-stack-odd-face  ((t (:background "#00464A" :foreground "#505050"))))
+;;   )
+
+;; インデントを縦棒(stipple)で美しく表示する
+;; https://github.com/jdtsmith/indent-bars
+;; ※ Emacsのビルドによる注意点:
+;;   stipple非対応ビルド(macOSのCocoa/NSビルド等)ではstipple経路でフェイス生成時に
+;;   "Invalid face box" エラーが出て indent-bars がロードできない。
+;;   emacs-mac(Mitsuharu Macポート)はstippleに対応しているため、そのまま綺麗な
+;;   stipple縦棒が描画できる。もしNSビルドに戻す場合は
+;;   indent-bars-prefer-character を t にして文字ベース描画に切り替えること。
+(use-package indent-bars
+  :straight (indent-bars :type git :host github :repo "jdtsmith/indent-bars")
   :diminish
   :hook
-  ((prog-mode yaml-mode) . highlight-indent-guides-mode)
+  ((prog-mode yaml-mode) . indent-bars-mode)
   :custom
-  (highlight-indent-guides-auto-enabled nil)
-  (highlight-indent-guides-responsive t)
-  (highlight-indent-guides-method 'fill)
-  :custom-face
-  (highlight-indent-guides-even-face       ((t (:background "#1F3466" :foreground "#505050"))))
-  (highlight-indent-guides-odd-face        ((t (:background "#00464A" :foreground "#505050"))))
-  (highlight-indent-guides-top-even-face   ((t (:background "#1F3466" :foreground "#505050"))))
-  (highlight-indent-guides-top-odd-face    ((t (:background "#00464A" :foreground "#505050"))))
-  (highlight-indent-guides-stack-even-face ((t (:background "#1F3466" :foreground "#505050"))))
-  (highlight-indent-guides-stack-odd-face  ((t (:background "#00464A" :foreground "#505050"))))
-  )
+  (indent-bars-color '(highlight :face-bg t :blend 0.25))   ; テーマに馴染む控えめな色
+  (indent-bars-highlight-current-depth '(:blend 0.75))      ; カーソル位置の階層を強調
+  (indent-bars-pattern ".")                                 ; べた塗りの縦棒
+  (indent-bars-width-frac 0.2)                              ; 棒の太さ
+  (indent-bars-pad-frac 0.2)                                ; 棒の左右余白
+  (indent-bars-display-on-blank-lines t))                  ; 空行にもガイドを表示
 
 
 
