@@ -100,7 +100,7 @@ Emacs 30 では pin している一部パッケージがそのままでは動か
 - ~conf/package-manage.el~: git-gutter+ が依存宣言する git-commit の recipe が現行 recipe リポジトリから消滅した(magit に統合された)ため、magit リポ内の ~lisp/git-commit.el~ を指す recipe を明示して解決させている。
 
 
-*** 既知の未解決問題(transient / magit)
+*** transient / magit の "static-when" エラー(原因と修正)
 
 起動時に次のような警告が出ることがある(use-package が捕捉するため起動自体は継続する)。
 
@@ -109,7 +109,29 @@ Invalid function: static-when
 transient--init-suffix-key is already defined as something else than a generic function
 #+end_example
 
-pin された transient 0.13.5 が使う ~static-when~(compat 由来のマクロ)がこの環境で解決されず、transient のロードが不完全になって組込 transient 0.7.2.2 と generic function 定義が衝突するのが原因。~straight-rebuild-package~ では直らない(pin バージョンの組み合わせ不整合)。起動はできるが magit が正常動作しないことがあるため、直すには transient / compat の pin を整合させて ~M-x straight-freeze-versions~ で固定し直す必要がある。
+**原因**: transient / magit は compat 由来のマクロ ~static-when~ を使う。ところが straight が
+~build-cache.el~ にこれらの依存を =nil= と記録してしまうことがあり(特にビルドが途中で中断された
+場合)、その状態でビルドすると compat が load-path に入らないまま byte-compile され、~static-when~
+が *展開されず関数呼び出しとして .elc に残る*。起動時に「Invalid function: static-when」で transient
+のロードが不完全になり、Emacs 30 組込 transient(0.7.x)と ~transient--init-suffix-key~ の定義が
+衝突して magit / magit-section / git-gutter+ まで巻き込む。
+
+**修正**: 依存(compat/cond-let/llama 等)を読み込んだ状態で該当パッケージを byte-compile し直す。
+~static-when~ を使うのは ~transient.el~ と ~magit-base.el~ だが、道連れになる magit 一式もまとめて
+再コンパイルすると確実。
+
+#+begin_src sh
+emacs --batch --eval '(let ((b (expand-file-name "~/.emacs.d/straight/build/")))
+  (dolist (p (directory-files b t))
+    (when (file-directory-p p) (add-to-list (quote load-path) p)))
+  (dolist (r (quote (compat cond-let llama dash with-editor))) (ignore-errors (require r)))
+  (dolist (pkg (quote ("transient" "magit" "magit-section" "git-commit" "with-editor" "git-gutter-plus")))
+    (dolist (el (directory-files (expand-file-name pkg b) t "\\.el$"))
+      (ignore-errors (byte-compile-file el)))))'
+#+end_src
+
+再コンパイル後に Emacs を再起動すれば解消する。~.el~ ソースは変更しないので straight は再ビルドせず、
+この修正した ~.elc~ がそのまま使われる(~straight/build~ を消して作り直すと再発しうる)。
 
 *** 言語サーバー(eglot)を使う場合
 
@@ -124,6 +146,53 @@ Emacs30標準の eglot で、プログラミング言語ごとに言語サーバ
 | Shell      | bash-language-server         | ~npm install -g bash-language-server~                          |
 
 (macOS注意) Emacs.appなどGUIから起動したEmacsは、ターミナルの ~.zshrc~ 等で設定したPATHを引き継がない。npmのグローバルインストール先や ~~/.go/bin~ 等に上記を入れてもeglotが見つけられないことがあるため、basic.el で [[https://github.com/purcell/exec-path-from-shell][exec-path-from-shell]] を使いシェルのPATHをEmacsに同期している(通常は追加設定不要)。
+
+** Emacsビルドの切り替え (NS Emacs 30 ⇔ emacs-mac 29)
+
+macOSでは2つのEmacsを共存させ、用途で使い分けている。設定はビルドごとに *git ブランチ* を分けている。
+
+| ビルド        | Homebrew          | CLI(~emacs~)         | GUI                          | 設定ブランチ   | indent 表示            |
+|---------------+-------------------+----------------------+------------------------------+----------------+------------------------|
+| NS Emacs 30   | ~emacs~ + ~emacs-app~ | ~brew link emacs~        | ~/Applications/Emacs.app~      | ~main~           | highlight-indent-guides |
+| emacs-mac 29  | ~emacs-mac@29~      | ~brew link emacs-mac@29~  | ~/Applications/Emacs-mac29~(別名) | ~emacs-mac29~    | indent-bars(stipple)    |
+
+両者は Cellar に併存でき、CLI の ~emacs~ はどちらか一方だけが ~/opt/homebrew/bin/emacs~ を張れる(リンクの排他)。
+
+*** 切り替え手順(両方向で対称)
+
+30→29 と 29→30 は *ミラーの同一手順* で、入れ替える formula 名と checkout するブランチが逆になるだけ。
+
+1. CLI のリンクを張り替える(現行を unlink → 対象を link)
+
+   #+begin_src sh
+   # 30 → 29
+   brew unlink emacs        && brew link emacs-mac@29
+   # 29 → 30
+   brew unlink emacs-mac@29 && brew link --overwrite emacs
+   #+end_src
+
+2. 設定ブランチを切り替える
+
+   #+begin_src sh
+   git checkout emacs-mac29   # 29用 (30へ戻すときは main)
+   #+end_src
+
+3. GUI は対象のアプリを起動する(~/Applications/Emacs.app~ = 30、~/Applications/Emacs-mac29~ = 29)。
+
+*** 手順が完全に同じにならない点(emacs-mac 29 側だけの追加事項)
+
+2つのビルドは native-comp の有無が異なるため、29 側にだけ前提・注意がある。
+
+- *gcc(native-comp)*: emacs-mac 29 は native-comp 有効。~.eln~ のリンクに gcc のランタイムが要るので
+  ~brew install gcc~ が前提(未導入だと "ld: library 'emutls_w' not found" で失敗)。
+  NS Emacs 30(この emacsformacosx ビルド)は native-comp *無効* なので gcc 不要・~eln-cache~ も作られない。
+- *初回起動の重さ*: 29 へ切り替えた初回は native-comp が走り重い(~eln-cache/29.4-*~ を生成)。30 側は無い。
+- *~straight/build~ は共有*: ~.elc~ は両ビルドで共有される。通常はそのまま読めるが、挙動が怪しいときは
+  ~straight/build~ を作り直す。特に切替直後に transient/magit のエラーが出たら、上の
+  「transient / magit の "static-when" エラー」の再コンパイルを実行する。
+
+まとめると、*骨格の手順(link 張り替え + ブランチ切替 + アプリ起動)は両方向で同じ* で、
+29 側にだけ「gcc が要る・初回が重い」という差がある。
 
 ** 別マシンへの移行 (straight.el)
 
