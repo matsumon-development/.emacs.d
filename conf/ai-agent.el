@@ -281,6 +281,46 @@ my/ai-agent-pop-displayed-to-frame の逆操作。"
                    (user-error "AIエージェントが表示されていません"))))
     (funcall (plist-get agent :back-to-window))))
 
+;; エージェントのバッファ内では Normal ステートの q(my/ai-tool-quit-window)で
+;; ウィンドウを閉じられるが、以下は「エージェント以外のウィンドウにいるまま」
+;; 別ウィンドウで開いているエージェントを片付けるためのコマンド。
+;; 全フレームのウィンドウを走査し、エージェント(my/STEM-mode)を表示している
+;; ウィンドウを対象にする。
+(defun my/ai-agent--displayed-windows ()
+  "全フレームで、AIエージェントのバッファを表示しているウィンドウのリストを返す。"
+  (seq-filter (lambda (win)
+                (with-current-buffer (window-buffer win)
+                  (my/ai-agent-current)))
+              (cl-mapcan #'window-list (frame-list))))
+
+(defun my/ai-agent-quit-displayed-window ()
+  "表示中のAIエージェントのウィンドウを閉じる(バッファ・プロセスは残す)。
+エージェント以外のウィンドウにいるまま、別ウィンドウのエージェントを片付ける用途。
+(エージェントのバッファ内なら Normal ステートの q でも閉じられる。)"
+  (interactive)
+  (let ((wins (or (my/ai-agent--displayed-windows)
+                  (user-error "AIエージェントが表示されていません"))))
+    (dolist (win wins)
+      ;; フレーム唯一のウィンドウは delete-window できないので残す。
+      (when (and (window-live-p win)
+                 (> (length (window-list (window-frame win))) 1))
+        (delete-window win)))))
+
+(defun my/ai-agent-kill-displayed-buffer ()
+  "表示中のAIエージェントのウィンドウを閉じ、さらにバッファも削除する(vtermプロセスも終了)。
+vtermは実行中プロセスを持つため通常killでは確認を求められるが、明示的な
+「閉じる」操作なので kill-buffer-query-functions を無効化して一発で閉じる。"
+  (interactive)
+  (let ((wins (or (my/ai-agent--displayed-windows)
+                  (user-error "AIエージェントが表示されていません"))))
+    (dolist (win wins)
+      (let ((buf (window-buffer win)))
+        (when (and (window-live-p win)
+                   (> (length (window-list (window-frame win))) 1))
+          (delete-window win))
+        (let ((kill-buffer-query-functions nil))
+          (kill-buffer buf))))))
+
 ;; =====================================================================
 ;; 3. Claude Code セッション全文の表示
 ;; =====================================================================

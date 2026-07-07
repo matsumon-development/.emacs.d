@@ -218,6 +218,12 @@
 ;; キーを分けず、1つのキーで扱える(コマンド本体は conf/ai-agent.el)。
 (bind-key "SPC a f" 'my/ai-agent-pop-displayed-to-frame evil-normal-state-map)
 (bind-key "SPC a w" 'my/ai-agent-dock-displayed-to-window evil-normal-state-map)
+;; SPC a q: 表示中のAIエージェントのウィンドウを閉じる(バッファは残す) /
+;; SPC a C-q: ウィンドウを閉じたうえでバッファも削除する。
+;; エージェント以外のウィンドウにいるまま、別ウィンドウのエージェントを片付ける用途
+;; (エージェントのバッファ内なら Normal ステートの q でも閉じられる)。
+(bind-key "SPC a q" 'my/ai-agent-quit-displayed-window evil-normal-state-map)
+(bind-key "SPC a C-q" 'my/ai-agent-kill-displayed-buffer evil-normal-state-map)
 (bind-key "SPC a a" 'my/run-ai-tool-prompt evil-normal-state-map)
 ;; SPC a s: 現在のプロジェクトのClaude Codeセッション全文を専用バッファで表示。
 ;; claudeはvtermに過去分が残らないので、~/.claude/projectsのトランスクリプトから復元する。
@@ -225,6 +231,8 @@
 (which-key-add-key-based-replacements "SPC a f" "pop-to-frame")
 (which-key-add-key-based-replacements "SPC a w" "back-to-window")
 (which-key-add-key-based-replacements "SPC a s" "claude-session")
+(which-key-add-key-based-replacements "SPC a q" "quit-window")
+(which-key-add-key-based-replacements "SPC a C-q" "kill-buffer-and-window")
 
 ;; 各AIエージェントのバッファ内キーバインド。
 ;;   q        … ウィンドウを閉じる(バッファ・プロセスは残す)
