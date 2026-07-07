@@ -264,6 +264,14 @@
     (kbd "C-c C-k") #'my/ai-agent-compose-abort)
   (evil-define-key 'normal my/ai-compose-mode-map "q" #'my/ai-agent-compose-abort))
 
+;;-----------------------------------------------------------
+;; whisper (音声入力)
+;;-----------------------------------------------------------
+;; C-S-w(Ctrl+Shift+w)で録音開始/終了をトグルする。
+;; whisper-run 自体が「録音してなければ開始／録音中なら停止して文字起こし」のトグルなので、
+;; 同じキーをもう一度押せば終了になる。
+(bind-key "C-S-w" 'whisper-run)
+
 ;; Visualステートの選択テキストをAIへ送る(本体は my/send-visual-selection-to-ai)。
 ;;   c / SPC a s s … デフォルトのAIツール(SPC a a で切替)へ
 ;;   SPC a s c/g/b … claude / agy / bob を明示指定

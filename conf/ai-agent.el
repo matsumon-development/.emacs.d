@@ -678,15 +678,16 @@ vtermのプロンプト欄は打ちづらいため、通常バッファで入力
 ;; 7. whisper 設定（音声入力・ローカルでの文字起こし）
 ;; =====================================================================
 ;; whisper.el はマイク音声を ffmpeg で録音し、whisper.cpp でローカル文字起こしして
-;; 現在のポイントにテキストを挿入する。C-c w で録音開始/停止をトグルする。
-;; 初回の C-c w で whisper-install-directory 以下に whisper.cpp を git clone して
+;; 現在のポイントにテキストを挿入する。C-S-w(Ctrl+Shift+w)で録音開始/終了をトグルする
+;; (whisper-run 自体が「録音してなければ開始／録音中なら停止して文字起こし」のトグル)。
+;; 初回起動時は whisper-install-directory 以下に whisper.cpp を git clone して
 ;; CMake でビルドし、指定モデル(下記)をダウンロードするため、少し時間がかかる。
 ;;   前提: ffmpeg / cmake / C++コンパイラ / git (いずれも導入済み前提)。
 ;;   whisper.el 自体は MELPA に無いため straight の git レシピで取得する。
+;;   キーバインド(C-S-w)は思想どおり keybind-manage.el 側に置く。
 (use-package whisper
   :straight (whisper :type git :host github :repo "natrys/whisper.el" :branch "master")
   :commands (whisper-run)
-  :bind ("C-c w" . whisper-run)   ; 音声入力の開始/終了を切り替える
   :config
   (setq whisper-install-directory (expand-file-name ".cache/" user-emacs-directory) ; 本体とモデルの保存先(.cache/whisper.cpp/)
         whisper-language "ja"           ; 日本語に固定
