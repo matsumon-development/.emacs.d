@@ -147,16 +147,19 @@ Emacs30標準の eglot で、プログラミング言語ごとに言語サーバ
 
 (macOS注意) Emacs.appなどGUIから起動したEmacsは、ターミナルの ~.zshrc~ 等で設定したPATHを引き継がない。npmのグローバルインストール先や ~~/.go/bin~ 等に上記を入れてもeglotが見つけられないことがあるため、basic.el で [[https://github.com/purcell/exec-path-from-shell][exec-path-from-shell]] を使いシェルのPATHをEmacsに同期している(通常は追加設定不要)。
 
-** Emacsビルドの切り替え (NS Emacs 30 ⇔ emacs-mac 29)
+** Emacsビルドの切り替え (emacs-plus 30 ⇔ emacs-mac 29)
 
 macOSでは2つのEmacsを共存させ、用途で使い分けている。設定はビルドごとに *git ブランチ* を分けている。
 
-| ビルド        | Homebrew          | CLI(~emacs~)         | GUI                          | 設定ブランチ   | indent 表示            |
-|---------------+-------------------+----------------------+------------------------------+----------------+------------------------|
-| NS Emacs 30   | ~emacs~ + ~emacs-app~ | ~brew link emacs~        | ~/Applications/Emacs.app~      | ~main~           | highlight-indent-guides |
-| emacs-mac 29  | ~emacs-mac@29~      | ~brew link emacs-mac@29~  | ~/Applications/Emacs-mac29~(別名) | ~emacs-mac29~    | indent-bars(stipple)    |
+| ビルド        | Homebrew                                | CLI(~emacs~)              | GUI                             | 設定ブランチ | indent 表示             |
+|---------------+-----------------------------------------+---------------------------+---------------------------------+--------------+-------------------------|
+| emacs-plus 30 | ~emacs-plus@30~ (tap d12frosted/emacs-plus) | ~brew link emacs-plus@30~   | ~/Applications/Emacs-plus30.app~  | ~main~         | highlight-indent-guides |
+| emacs-mac 29  | ~emacs-mac@29~                             | ~brew link emacs-mac@29~    | ~/Applications/Emacs-mac29.app~   | ~emacs-mac29~  | indent-bars(stipple)    |
 
-両者は Cellar に併存でき、CLI の ~emacs~ はどちらか一方だけが ~/opt/homebrew/bin/emacs~ を張れる(リンクの排他)。
+両者とも native-comp 有効の Cocoa ビルドで、Cellar に併存できる。CLI の ~emacs~ はどちらか一方だけが
+~/opt/homebrew/bin/emacs~ を張れる(リンクの排他)。旧構成(emacsformacosx = cask ~emacs-app~ +
+ターミナル版フォーミュラ ~emacs~)は emacs-plus@30 に置き換えた。emacs-plus は新しい tap のため
+初回は ~brew tap d12frosted/emacs-plus && brew trust d12frosted/emacs-plus~ が要る。
 
 *** 切り替え手順(両方向で対称)
 
@@ -166,9 +169,9 @@ macOSでは2つのEmacsを共存させ、用途で使い分けている。設定
 
    #+begin_src sh
    # 30 → 29
-   brew unlink emacs        && brew link emacs-mac@29
+   brew unlink emacs-plus@30 && brew link emacs-mac@29
    # 29 → 30
-   brew unlink emacs-mac@29 && brew link --overwrite emacs
+   brew unlink emacs-mac@29  && brew link --overwrite emacs-plus@30
    #+end_src
 
 2. 設定ブランチを切り替える
@@ -177,22 +180,146 @@ macOSでは2つのEmacsを共存させ、用途で使い分けている。設定
    git checkout emacs-mac29   # 29用 (30へ戻すときは main)
    #+end_src
 
-3. GUI は対象のアプリを起動する(~/Applications/Emacs.app~ = 30、~/Applications/Emacs-mac29~ = 29)。
+3. GUI は対象のアプリを起動する(~/Applications/Emacs-plus30.app~ = 30、~/Applications/Emacs-mac29.app~ = 29)。
+   Alfred/Spotlight からは「Emacs-plus30」で 30、「Emacs-mac29」で 29 を起動できる。アプリ配置の詳細は
+   下の「音声入力 (whisper.el)」→「アプリ配置」を参照。
 
-*** 手順が完全に同じにならない点(emacs-mac 29 側だけの追加事項)
+*** native-comp とビルド差の注意
 
-2つのビルドは native-comp の有無が異なるため、29 側にだけ前提・注意がある。
+emacs-plus@30 に移行したことで *両ビルドとも native-comp 有効* になった(旧 emacsformacosx 30 は無効だった)。
 
-- *gcc(native-comp)*: emacs-mac 29 は native-comp 有効。~.eln~ のリンクに gcc のランタイムが要るので
-  ~brew install gcc~ が前提(未導入だと "ld: library 'emutls_w' not found" で失敗)。
-  NS Emacs 30(この emacsformacosx ビルド)は native-comp *無効* なので gcc 不要・~eln-cache~ も作られない。
-- *初回起動の重さ*: 29 へ切り替えた初回は native-comp が走り重い(~eln-cache/29.4-*~ を生成)。30 側は無い。
-- *~straight/build~ は共有*: ~.elc~ は両ビルドで共有される。通常はそのまま読めるが、挙動が怪しいときは
-  ~straight/build~ を作り直す。特に切替直後に transient/magit のエラーが出たら、上の
+- *gcc/libgccjit*: native-comp は ~.eln~ 生成に gcc ランタイムを使う。emacs-plus@30 は ~gcc~/~libgccjit~ を
+  Homebrew 依存として自動で入れる。emacs-mac 29 は ~brew install gcc~ が前提(未導入だと
+  "ld: library 'emutls_w' not found" で失敗)。
+- *初回起動の重さ*: どちらも切替後の初回はパッケージ(約90個)を非同期ネイティブコンパイルするため重く、
+  ~eln-cache/30.2-*~ / ~eln-cache/29.4-*~ を生成する。コンパイルは遅延・非同期なので Emacs 自体は使えるが、
+  ~*Async-native-compile-log*~ にログが出て CPU を使う。キャッシュが温まれば以降の起動は速い。
+- *~straight/build~ は共有*: ~.elc~ は両ビルドで共有される(~.eln~ はビルド別)。通常はそのまま読めるが、
+  挙動が怪しいときは ~straight/build~ を作り直す。特に切替直後に transient/magit のエラーが出たら、上の
   「transient / magit の "static-when" エラー」の再コンパイルを実行する。
 
 まとめると、*骨格の手順(link 張り替え + ブランチ切替 + アプリ起動)は両方向で同じ* で、
-29 側にだけ「gcc が要る・初回が重い」という差がある。
+29 側だけ ~brew install gcc~ が明示的に要る点が違う。
+
+** 音声入力 (whisper.el)
+
+マイク音声を ffmpeg で録音し、[[https://github.com/ggerganov/whisper.cpp][whisper.cpp]] でローカル文字起こしして、ポイント位置に日本語で挿入する。
+設定は ~conf/ai-agent.el~。~C-c w~ で録音の開始/停止をトグルする(=whisper-run=)。
+モデルは ~large-v3-turbo~、保存先は ~~/.emacs.d/.cache/whisper.cpp/~(git 管理外)。
+
+*** 前提ツール
+
+#+begin_src sh
+brew install ffmpeg cmake     # cmake / C++コンパイラ / git は whisper.cpp のビルドに必要
+#+end_src
+
+*** macOS ツールチェーンの破損 (Command Line Tools → Xcode に切替)
+
+- *症状*: 初回 ~C-c w~ の whisper.cpp ビルドが ~'array' / 'mutex' / 'cstdio' file not found~ で失敗する。
+- *原因*: Command Line Tools(CLT) が壊れており、C++標準ライブラリのヘッダを見つけられない
+  (=/usr/bin/c++= が素の ~#include <array>~ すらコンパイル不可)。whisper.el 側の問題ではない。
+- *対処*: 正常な Xcode.app に切り替える(要 ~sudo~)。
+
+  #+begin_src sh
+  sudo xcodebuild -license accept                              # Apple SDK ライセンス同意
+  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+  #+end_src
+
+  確認: ~echo '#include <array>\nint main(){}' | c++ -x c++ - -o /dev/null~ が通ればOK。
+  CLT に依存していた他のネイティブビルド(straight.el 等)も同時に直る。
+
+*** whisper.cpp のビルドとモデル取得
+
+初回の ~C-c w~ で自動的に clone+build+モデルDL(約1.5GB)が走る。手動で先に済ませる場合:
+
+#+begin_src sh
+cd ~/.emacs.d/.cache/ && git clone https://github.com/ggerganov/whisper.cpp && cd whisper.cpp \
+  && cmake -B build && cmake --build build -j --config Release \
+  && bash ./models/download-ggml-model.sh large-v3-turbo
+#+end_src
+
+注意: whisper.el は *ビルド失敗時に whisper.cpp ディレクトリを自動削除* する。失敗したら上の
+ツールチェーンを直してからやり直すこと。動作確認: ~./build/bin/whisper-cli -m models/ggml-large-v3-turbo.bin -f samples/jfk.wav -nt~。
+
+*** 録音デバイス (avfoundation)
+
+macOS では whisper.el がデバイスを自動選択せず *明示指定が必須*。未設定だと
+~Set a suitable value for whisper--ffmpeg-input-device~ で失敗する。
+
+#+begin_src sh
+ffmpeg -f avfoundation -list_devices true -i ""   # 音声デバイス番号を確認
+#+end_src
+
+~conf/ai-agent.el~ で ~(setq whisper--ffmpeg-input-device ":1")~ のように ~":<音声デバイス番号>"~ を設定。
+Bluetooth 機器は接続状況でインデックスがずれることがある。
+
+*** マイク権限 (最重要)
+
+何を話しても「ご視聴ありがとうございました」等の定型文しか出ない場合、*録音が無音* になっている
+(=whisper が無音に対して出す幻聴)。app に ~NSMicrophoneUsageDescription~ が無い/マイク権限が無いと、
+macOS がマイクを渡さず子プロセスの ffmpeg に無音が流れるのが原因。
+=emacs-plus@30= は用途宣言を最初から内蔵しているが =emacs-mac@29= は持たない。いずれも下の
+*方法B* で ~com.apple.security.device.audio-input~ entitlement を付けるのが確実(両アプリ適用済み)。対処は2通り。
+
+- *方法A: ターミナルから起動(簡単・元に戻せる)*。macOS はマイクアクセスを「起動元プロセス」に帰属させる。
+  端末アプリ(Terminal/iTerm)にマイク権限を与え、=.app= の実行ファイルを *端末から直接* 起動する
+  (=open -a= は LaunchServices 経由になり不可)。
+
+  #+begin_src sh
+  /Applications/Emacs-mac29.app/Contents/MacOS/Emacs & disown    # emacs-mac 29
+  /Applications/Emacs-plus30.app/Contents/MacOS/Emacs & disown   # emacs-plus 30
+  #+end_src
+
+  注: =/opt/homebrew/bin/emacs= (Homebrew 版) は *GUI非対応のターミナル Emacs* なので
+  ~emacs &~ だと ~suspended (tty output)~ になる。GUI は上の =.app= の実行ファイルを叩くこと。
+
+- *方法B: app を再署名してマイク権限を付与(Dock/Alfred 起動のまま使える)*。
+  audio-input entitlement を足して ad-hoc 再署名する。現行 2 ビルドはどちらも hardened runtime 無しの
+  ad-hoc 署名なので ~--options runtime~ は不要。*対象ビルドに既存 entitlement があれば必ず含める* こと
+  (hardened runtime の app は ~com.apple.security.cs.disable-library-validation~ を持つことがあり、
+  落とすと vterm 等のネイティブモジュールが読めなくなる)。
+
+#+begin_src sh
+APP=/Applications/Emacs-mac29.app     # 対象アプリ(=/Applications/Emacs-plus30.app= にも同様に)
+cp "$APP/Contents/Info.plist" "$APP/Contents/Info.plist.bak"
+# 用途宣言が無いビルド(emacs-mac)だけ追加。emacs-plus は内蔵済みなので下行は不要(あってもエラー無視で可)。
+/usr/libexec/PlistBuddy -c 'Add :NSMicrophoneUsageDescription string "whisper.el で音声入力に使用します"' "$APP/Contents/Info.plist" 2>/dev/null || true
+cat > /tmp/mic.entitlements <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>com.apple.security.device.audio-input</key><true/>
+</dict></plist>
+EOF
+codesign --force --deep --sign - --entitlements /tmp/mic.entitlements "$APP"
+#+end_src
+
+  対象アプリを終了してから実行する。Gatekeeper が文句を言うときは
+  ~xattr -dr com.apple.quarantine "$APP"~。*アプリを更新・再インストールすると署名は元に戻る* ので都度やり直す。
+
+*** アプリ配置 (Alfred から起動できるように)
+
+emacs-plus / emacs-mac の Emacs.app は Cellar(=/opt/homebrew/...=)にあり Alfred/Spotlight が拾えないため、
+ビルドごとに名前を分けて =/Applications= へ *実体コピー(=ditto=)* している(シンボリックリンクは
+Alfred のインデックスに乗りにくい)。
+
+- =/Applications/Emacs-plus30.app= = emacs-plus@30(=/opt/homebrew/Cellar/emacs-plus@30/30.2/Emacs.app= のコピー)
+- =/Applications/Emacs-mac29.app=  = emacs-mac@29(=/opt/homebrew/opt/emacs-mac@29/Emacs.app= のコピー)
+
+両方に上の *方法B(マイク再署名)* を適用済み。=ditto= で実体コピーしているので、
+*対応する formula を ~brew upgrade~ したら* =/Applications= 側へ再コピー＋再署名が必要:
+
+#+begin_src sh
+LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+# emacs-plus@30 を更新したとき
+ditto /opt/homebrew/Cellar/emacs-plus@30/30.2/Emacs.app /Applications/Emacs-plus30.app && "$LSREG" -f /Applications/Emacs-plus30.app
+# emacs-mac@29 を更新したとき
+ditto /opt/homebrew/opt/emacs-mac@29/Emacs.app          /Applications/Emacs-mac29.app && "$LSREG" -f /Applications/Emacs-mac29.app
+# いずれもコピー後に「方法B」の再署名を実行する
+#+end_src
+
+注: 両 app とも bundle id は ~org.gnu.Emacs~ で重複するが、Alfred はパス/名前(=Emacs-plus30= / =Emacs-mac29=)で
+起動するため実用上は問題ない。
 
 ** 別マシンへの移行 (straight.el)
 

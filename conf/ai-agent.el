@@ -545,3 +545,39 @@ TOOL(コマンド名文字列)省略時はデフォルトのAIツールに送る
 
   ;; gptelのバッファをポップアップではなく通常のバッファとして扱いやすくする設定
   (setq gptel-default-mode 'markdown-mode))
+
+;; =====================================================================
+;; 6. whisper 設定（音声入力・ローカルでの文字起こし）
+;; =====================================================================
+;; whisper.el はマイク音声を ffmpeg で録音し、whisper.cpp でローカル文字起こしして
+;; 現在のポイントにテキストを挿入する。C-c w で録音開始/停止をトグルする。
+;; 初回の C-c w で whisper-install-directory 以下に whisper.cpp を git clone して
+;; CMake でビルドし、指定モデル(下記)をダウンロードするため、少し時間がかかる。
+;;   前提: ffmpeg / cmake / C++コンパイラ / git (いずれも導入済み前提)。
+;;   whisper.el 自体は MELPA に無いため straight の git レシピで取得する。
+(use-package whisper
+  :straight (whisper :type git :host github :repo "natrys/whisper.el" :branch "master")
+  :commands (whisper-run)
+  :bind ("C-c w" . whisper-run)   ; 音声入力の開始/終了を切り替える
+  :config
+  (setq whisper-install-directory (expand-file-name ".cache/" user-emacs-directory) ; 本体とモデルの保存先(.cache/whisper.cpp/)
+        whisper-language "ja"           ; 日本語に固定
+        whisper-model "large-v3-turbo"  ; Turboモデル(約1.5GB)。まず動作確認するなら "base" が軽い
+        whisper-translate nil           ; 英語への翻訳はオフ
+        whisper-return-cursor 'start)   ; 入力後、カーソルを挿入テキストの先頭に戻す
+
+  ;; --- macOS: 録音デバイス(avfoundation)の指定 ---
+  ;; macOS では whisper.el がデバイスを自動選択せず、明示指定が必須
+  ;; (未設定だと "Set a suitable value for whisper--ffmpeg-input-device" で失敗する)。
+  ;; 値は ":<音声デバイス番号>"(先頭コロン=映像なし+音声のみ)。
+  ;; デバイス番号は次で確認できる:
+  ;;   ffmpeg -f avfoundation -list_devices true -i ""
+  ;; ":1" = OpenRun Pro 2 by Shokz。使うマイクを変えたら番号を合わせること。
+  ;; 注意: Bluetooth機器は接続状況でインデックスがずれることがある。
+  (setq whisper--ffmpeg-input-device ":1")
+
+  ;; --- macOS: マイク使用許可 ---
+  ;; 上記デバイスを設定した上で初めて録音を試みると、macOS がマイク許可を求める。
+  ;; Emacs はマイクへ初アクセスするまで「システム設定 → プライバシーとセキュリティ
+  ;;  → マイク」に現れないため、リストに出ないのは正常。録音実行時に許可すること。
+  )
