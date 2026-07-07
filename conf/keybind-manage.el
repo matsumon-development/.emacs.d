@@ -225,6 +225,11 @@
 (bind-key "SPC a q" 'my/ai-agent-quit-displayed-window evil-normal-state-map)
 (bind-key "SPC a C-q" 'my/ai-agent-kill-displayed-buffer evil-normal-state-map)
 (bind-key "SPC a a" 'my/run-ai-tool-prompt evil-normal-state-map)
+;; SPC a i: vtermの入力欄は打ちづらいので、プロンプトを通常バッファで編集する
+;; 専用ウィンドウを開く。C-c C-c で送信してバッファ・ウィンドウを閉じる
+;; (本体は conf/ai-agent.el / my/ai-agent-compose)。
+(bind-key "SPC a i" 'my/ai-agent-compose evil-normal-state-map)
+(which-key-add-key-based-replacements "SPC a i" "compose-prompt")
 ;; SPC a s: 現在のプロジェクトのClaude Codeセッション全文を専用バッファで表示。
 ;; claudeはvtermに過去分が残らないので、~/.claude/projectsのトランスクリプトから復元する。
 (bind-key "SPC a s" 'my/claude-code-show-session evil-normal-state-map)
@@ -248,6 +253,16 @@
       (evil-define-key 'insert mode-map (kbd "C-c C-g") #'vterm-send-escape)
       (evil-define-key 'normal mode-map (kbd "C-c C-w") #'my/ai-agent-back-to-window)
       (evil-define-key 'insert mode-map (kbd "C-c C-w") #'my/ai-agent-back-to-window))))
+
+;; プロンプト編集バッファ(compose)内のキーバインド。
+;;   C-c C-c … 送信してバッファ・ウィンドウを閉じる(normal/insert両方で)
+;;   C-c C-k … 送信せず中止して閉じる
+;;   q        … normalステートで中止して閉じる
+(with-eval-after-load 'evil
+  (evil-define-key '(normal insert) my/ai-compose-mode-map
+    (kbd "C-c C-c") #'my/ai-agent-compose-send
+    (kbd "C-c C-k") #'my/ai-agent-compose-abort)
+  (evil-define-key 'normal my/ai-compose-mode-map "q" #'my/ai-agent-compose-abort))
 
 ;; Visualステートの選択テキストをAIへ送る(本体は my/send-visual-selection-to-ai)。
 ;;   c / SPC a s s … デフォルトのAIツール(SPC a a で切替)へ

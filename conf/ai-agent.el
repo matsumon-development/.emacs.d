@@ -567,7 +567,95 @@ TOOL(コマンド名文字列)省略時はデフォルトのAIツールに送る
      ((string= selected "bob") (my/run-bob)))))
 
 ;; =====================================================================
-;; 5. gptel 設定（エディタ一体型インライン書き換え & チャット用）
+;; 5. AIエージェントへ送るプロンプトの編集バッファ (compose)
+;; =====================================================================
+;; vtermのプロンプト欄は編集操作(カーソル移動・範囲削除・貼り付け)が効きにくく、
+;; 長い/複数行のプロンプトを打ちづらい。そこで通常のEmacsバッファでプロンプトを
+;; 編集し、C-c C-c で対象エージェントのvtermへ一括送信してバッファ・ウィンドウを
+;; 閉じる「編集専用バッファ」を用意する(git commitメッセージ編集に近い発想)。
+;; 送信は bracketed paste + Return で、既存の my/send-visual-selection-to-ai と揃える。
+
+(defvar my/ai-compose-buffer-name "*ai-compose*"
+  "AIエージェント向けプロンプト編集バッファの名前。")
+
+(defvar-local my/ai-compose-target-buffer nil
+  "このコンポーズバッファの送信先AIエージェントvtermバッファ。")
+
+(define-minor-mode my/ai-compose-mode
+  "AIエージェントへ送るプロンプトを編集する専用バッファであることを示すマイナーモード。
+送信(C-c C-c)・中止(C-c C-k / q)のキーバインドは keybind-manage.el で束縛する。"
+  :lighter " AICompose"
+  :keymap (make-sparse-keymap))
+
+(defun my/ai-compose--resolve-target ()
+  "コンポーズの送信先エージェントvtermバッファを返す(無ければ起動して返す)。
+優先順位: 現在バッファのエージェント → 表示中のエージェント → デフォルトツール。"
+  (let ((agent (or (my/ai-agent-current) (my/ai-agent-displayed))))
+    (if agent
+        ;; 表示判定はできてもバッファが消えている場合があるので、無ければ起動し直す
+        (or (get-buffer (funcall (plist-get agent :buffer-name)))
+            (progn (funcall (plist-get agent :run))
+                   (get-buffer (funcall (plist-get agent :buffer-name)))))
+      ;; どのエージェントも見当たらなければデフォルトツールを起動する
+      (let* ((tool (my/get-default-ai-tool))
+             (a (or (my/ai-agent-get tool)
+                    (user-error "未対応のAIツールです: %s" tool))))
+        (funcall (plist-get a :run))
+        (get-buffer (funcall (plist-get a :buffer-name)))))))
+
+(defun my/ai-agent-compose ()
+  "AIエージェントへ送るプロンプトを専用バッファで編集する。
+vtermのプロンプト欄は打ちづらいため、通常バッファで入力し C-c C-c で送信する。
+送信先は現在/表示中のエージェント、無ければデフォルトツール(必要なら起動)。"
+  (interactive)
+  (let ((target (my/ai-compose--resolve-target))
+        (buf (get-buffer-create my/ai-compose-buffer-name)))
+    (with-current-buffer buf
+      (erase-buffer)
+      ;; major-mode設定でローカル変数が消えるので、送信先の記録は最後に行う
+      (text-mode)
+      (my/ai-compose-mode 1)
+      (setq my/ai-compose-target-buffer target))
+    ;; 小さなvtermウィンドウ等から呼ぶと選択中ウィンドウの分割に失敗するため、
+    ;; my/vterm-pop-to-buffer-oriented(選択ウィンドウを分割)は使わず、
+    ;; フレーム最下部に十分な高さのウィンドウを確保して表示・選択する。
+    (pop-to-buffer buf '((display-buffer-at-bottom)
+                         (window-height . 0.3)))
+    ;; すぐ入力できるようinsertステートにする
+    (when (fboundp 'evil-insert-state) (evil-insert-state)))
+  (message "C-c C-c で送信 / C-c C-k で中止"))
+
+(defun my/ai-agent-compose--close ()
+  "コンポーズバッファとそのウィンドウを閉じる(送信/中止の共通後処理)。"
+  (let ((buf (current-buffer)))
+    (when (> (count-windows) 1)
+      (delete-window))
+    (kill-buffer buf)))
+
+(defun my/ai-agent-compose-send ()
+  "コンポーズバッファの内容を送信先エージェントのvtermへ送り、バッファとウィンドウを閉じる。"
+  (interactive)
+  (unless (bound-and-true-p my/ai-compose-mode)
+    (user-error "コンポーズバッファではありません"))
+  (let ((target my/ai-compose-target-buffer)
+        (text (string-trim (buffer-substring-no-properties (point-min) (point-max)))))
+    (when (string-empty-p text)
+      (user-error "送信する内容がありません"))
+    (unless (buffer-live-p target)
+      (user-error "送信先のAIエージェントバッファがありません"))
+    (with-current-buffer target
+      ;; bracketed pasteで複数行も途中送信されず1入力として渡し、最後にReturnで送信する
+      (vterm-send-string text t)
+      (vterm-send-return))
+    (my/ai-agent-compose--close)))
+
+(defun my/ai-agent-compose-abort ()
+  "コンポーズを中止し、バッファとウィンドウを閉じる(送信しない)。"
+  (interactive)
+  (my/ai-agent-compose--close))
+
+;; =====================================================================
+;; 6. gptel 設定（エディタ一体型インライン書き換え & チャット用）
 ;; =====================================================================
 (use-package gptel
   :straight t
@@ -587,7 +675,7 @@ TOOL(コマンド名文字列)省略時はデフォルトのAIツールに送る
   (setq gptel-default-mode 'markdown-mode))
 
 ;; =====================================================================
-;; 6. whisper 設定（音声入力・ローカルでの文字起こし）
+;; 7. whisper 設定（音声入力・ローカルでの文字起こし）
 ;; =====================================================================
 ;; whisper.el はマイク音声を ffmpeg で録音し、whisper.cpp でローカル文字起こしして
 ;; 現在のポイントにテキストを挿入する。C-c w で録音開始/停止をトグルする。
