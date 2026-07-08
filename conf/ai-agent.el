@@ -494,30 +494,39 @@ claudeの対話UIではvtermに過去分が残らないため、~/.claude/projec
 ;; vterm-send-stringのpaste-p(bracketed paste)を使うので、
 ;; 複数行になっても改行のたびに送信されず、エージェント側で複数行入力として扱われる。
 ;; 送り先はデフォルトのAIツール(my/get-default-ai-tool)。SPC a a で切り替えられる。
-(defun my/send-visual-selection-to-ai (&optional tool)
-  "Visualステートで選択中のテキストを、ファイルパスと行:列範囲付きで
-AIエージェントのプロンプトに貼り付ける。
-TOOL(コマンド名文字列)省略時はデフォルトのAIツールに送る。
-対応するバッファが無ければ起動してから送る。"
-  (interactive)
+(defun my/ai--visual-selection-payload ()
+  "Visualステートの選択範囲を、ファイルパス+行:列範囲付きのペイロード文字列にして返す。
+Visualステートでなければエラー。整形例:
+  /path/to/file.el L10:R30 ~L20:R2
+  ```
+  (選択したテキスト)
+  ```
+region-beginning/end を読むので、evilステートを変える前に呼ぶこと。"
   (unless (evil-visual-state-p)
     (user-error "Visualステートで選択してから実行してください"))
-  (let* ((tool (or tool (my/get-default-ai-tool)))
-         (agent (or (my/ai-agent-get tool)
-                    (user-error "未対応のAIツールです: %s" tool)))
-         (run-fn (plist-get agent :run))
-         (bufname-fn (plist-get agent :buffer-name))
-         (beg (region-beginning))
+  (let* ((beg (region-beginning))
          (end (region-end))
          (text (buffer-substring-no-properties beg end))
          (file (or (buffer-file-name) (buffer-name)))
          (start-line (line-number-at-pos beg))
          (start-col (1+ (save-excursion (goto-char beg) (current-column))))
          (end-line (line-number-at-pos end))
-         (end-col (1+ (save-excursion (goto-char end) (current-column))))
-         (header (format "%s L%d:R%d ~L%d:R%d"
-                          file start-line start-col end-line end-col))
-         (payload (format "%s\n```\n%s\n```\n" header text))
+         (end-col (1+ (save-excursion (goto-char end) (current-column)))))
+    (format "%s L%d:R%d ~L%d:R%d\n```\n%s\n```\n"
+            file start-line start-col end-line end-col text)))
+
+(defun my/send-visual-selection-to-ai (&optional tool)
+  "Visualステートで選択中のテキストを、ファイルパスと行:列範囲付きで
+AIエージェントのプロンプトに貼り付ける。
+TOOL(コマンド名文字列)省略時はデフォルトのAIツールに送る。
+対応するバッファが無ければ起動してから送る。"
+  (interactive)
+  (let* ((payload (my/ai--visual-selection-payload))
+         (tool (or tool (my/get-default-ai-tool)))
+         (agent (or (my/ai-agent-get tool)
+                    (user-error "未対応のAIツールです: %s" tool)))
+         (run-fn (plist-get agent :run))
+         (bufname-fn (plist-get agent :buffer-name))
          (buffer-name (funcall bufname-fn))
          (already-running (get-buffer buffer-name)))
     (evil-normal-state)
@@ -653,6 +662,29 @@ vtermのプロンプト欄は打ちづらいため、通常バッファで入力
   "コンポーズを中止し、バッファとウィンドウを閉じる(送信しない)。"
   (interactive)
   (my/ai-agent-compose--close))
+
+(defun my/send-visual-selection-to-compose ()
+  "Visualステートで選択中のテキストを、ファイルパスと行:列範囲付きで
+ai-composeバッファへ挿入する(vtermのプロンプトへ直接送るのではなく編集バッファへ集める)。
+既にai-composeバッファが開いていればそのカーソル位置に挿入し、
+無ければ新規にai-composeを開いて挿入する。"
+  (interactive)
+  (let ((payload (my/ai--visual-selection-payload))
+        (existing (get-buffer my/ai-compose-buffer-name)))
+    (evil-normal-state)
+    (if existing
+        ;; 既に開いている: そのウィンドウを選び(表示されていなければ表示し)、
+        ;; そのバッファのカーソル位置(point)に挿入する。
+        (progn
+          (let ((win (get-buffer-window existing t)))
+            (if win
+                (progn (select-frame-set-input-focus (window-frame win))
+                       (select-window win))
+              (pop-to-buffer existing)))
+          (insert payload))
+      ;; 無ければ新規にai-composeを開き(空バッファの先頭)、そこへ挿入する。
+      (my/ai-agent-compose)
+      (insert payload))))
 
 ;; =====================================================================
 ;; 6. gptel 設定（エディタ一体型インライン書き換え & チャット用）

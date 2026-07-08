@@ -272,9 +272,11 @@
 ;; 同じキーをもう一度押せば終了になる。
 (bind-key "C-S-w" 'whisper-run)
 
-;; Visualステートの選択テキストをAIへ送る(本体は my/send-visual-selection-to-ai)。
-;;   c / SPC a s s … デフォルトのAIツール(SPC a a で切替)へ
-;;   SPC a s c/g/b … claude / agy / bob を明示指定
+;; Visualステートの選択テキストをAIへ送る。
+;;   c            … ai-compose(編集バッファ)へ集める(本体 my/send-visual-selection-to-compose)。
+;;                  既に開いていればカーソル位置に挿入、無ければ開いて挿入する。
+;;   SPC a s s    … デフォルトのAIツール(SPC a a で切替)のプロンプトへ直接送る
+;;   SPC a s c/g/b … claude / agy / bob のプロンプトへ直接送る
 (which-key-add-key-based-replacements "SPC a s" "send-selection-to-ai")
 (bind-key "SPC a s s" 'my/send-visual-selection-to-ai evil-visual-state-map)
 (bind-key "SPC a s c"
@@ -286,8 +288,9 @@
 (bind-key "SPC a s b"
           (lambda () (interactive) (my/send-visual-selection-to-ai "bob"))
           evil-visual-state-map)
-;; Visualステートでは単に c でデフォルトのAIツールへ送る(Evil標準のchangeを上書き)。
-(bind-key "c" 'my/send-visual-selection-to-ai evil-visual-state-map)
+;; Visualステートの c は ai-compose 編集バッファへ集める(Evil標準のchangeを上書き)。
+;; プロンプトへ直接送りたいときは上の SPC a s 系を使う。
+(bind-key "c" 'my/send-visual-selection-to-compose evil-visual-state-map)
 
 ;;-----------------------------------------------------------
 ;; vterm
