@@ -11,6 +11,10 @@
 ;;                 フォント
 ;;----------------------------------------------------------------------------------------
 ;;https://github.com/miiton/Cica/releases
+;; darwinは160(=16px)にしている。Cicaは同一サイズなら全角=半角×2になる設計だが、
+;; ピクセルサイズが奇数(例: :height 150 → 15px)だと半角の送り幅7.5pxがセル7pxに丸められ、
+;; 全角15pxが2×7=14pxに収まらず日英混在の表(org table等)が1pxずつずれる。
+;; 偶数pxに落ちる値(140→14px / 160→16px)なら全角がちょうど2セル分になり整列するため160を採用。
 (if (display-graphic-p)
     (progn
       (set-face-attribute
@@ -18,19 +22,21 @@
        :family "Cica"
        :height
        (cond
-        ((eq system-type 'darwin) 150)
+        ((eq system-type 'darwin) 160)
         ((eq system-type 'windows-nt) 110)
         ((eq system-type 'gnu/linux) 130)))
-      ;;日本語フォント
+      ;;日本語フォント(全角はdefaultと同じCica・同一サイズを継承させ、全角=半角×2を保つ。
+      ;; font-specはサイズ指定に:heightを受け付けないため、ここではサイズを指定しない)
       (set-fontset-font
        (frame-parameter nil 'font) 'japanese-jisx0208
-       (font-spec
-        :family "Cica"
-        :height
-        (cond
-         ((eq system-type 'darwin) 150)
-         ((eq system-type 'windows-nt) 110)
-         ((eq system-type 'gnu/linux) 130))))))
+       (font-spec :family "Cica"))
+      ;; 行間。emacs-mac + Cica の組み合わせでは、行の箱の高さがフォントの
+      ;; ピクセルサイズより小さく報告される(160指定で行高12px < グリフ16px、
+      ;; とくにdescentが2pxしかない)。そのままだと descender(g/j/p/q/y)や
+      ;; 漢字の下端がクリップされ「文字が潰れる」。line-spacingで下方向に余白を
+      ;; 足し、行の箱をフォントサイズ以上に広げてクリップを防ぐ(4pxで行高16px=
+      ;; ピクセルサイズと一致。もう少しゆとりが欲しければ増やす)。
+      (setq-default line-spacing 4)))
 
 
 ;;----------------------------------------------------------------------------------------
