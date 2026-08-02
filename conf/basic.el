@@ -10,25 +10,25 @@
 ;;----------------------------------------------------------------------------------------
 ;;                 フォント
 ;;----------------------------------------------------------------------------------------
-;;https://github.com/yuru7/HackGen/releases
+;;https://github.com/miiton/Cica/releases
 (if (display-graphic-p)
     (progn
       (set-face-attribute
        'default nil
-       :family "HackGenNerd"
+       :family "Cica"
        :height
        (cond
-        ((eq system-type 'darwin) 140)
+        ((eq system-type 'darwin) 150)
         ((eq system-type 'windows-nt) 110)
         ((eq system-type 'gnu/linux) 130)))
       ;;日本語フォント
       (set-fontset-font
        (frame-parameter nil 'font) 'japanese-jisx0208
        (font-spec
-        :family "HackGenNerd"
+        :family "Cica"
         :height
         (cond
-         ((eq system-type 'darwin) 140)
+         ((eq system-type 'darwin) 150)
          ((eq system-type 'windows-nt) 110)
          ((eq system-type 'gnu/linux) 130))))))
 

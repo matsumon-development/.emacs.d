@@ -43,7 +43,7 @@ load順が重要になる場合がある(例: keybind-manage.el は package-mana
 |    |                                     | 説明                                                                 |
 |----+-------------------------------------+-----------------------------------------------------------------------|
 |  1 | Emacs (macOSは emacs-mac 推奨)     | macOSでは [[https://github.com/railwaycat/homebrew-emacsmacport][emacs-mac]] (Mitsuharu Macポート, 29.4系) を使用。stipple対応でindent-barsが綺麗に描画でき、日本語IME/描画も良好。詳細は下記「macOSのEmacsビルド」参照 |
-|  2 | [[https://github.com/yuru7/HackGen/releases][HackGenFont]]                         | 等幅Nerdフォント                                                       |
+|  2 | [[https://github.com/miiton/Cica/releases][Cica]]                                | 等幅Nerdフォント                                                       |
 |  3 | Node.js / npm (fnm等推奨)          | Claude Code CLI本体、TypeScript/Shell系の言語サーバのインストールに必要 |
 |  4 | Go                                 | Go言語の編集・gofmt(goimports)・gopls(言語サーバ)に必要                |
 |  5 | CMake / libtool / Cコンパイラ      | vterm(ネイティブモジュール)のビルドに必要。macOSはXcode Command Line Toolsで揃う |
