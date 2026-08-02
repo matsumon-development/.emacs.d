@@ -83,6 +83,15 @@ rm -rf ~/.emacs.d/straight/build ~/.emacs.d/eln-cache
 - 環境変数ANTHROPIC_API_KEY(gptelのAnthropicバックエンドで使用)
 - (macOS・任意) GNU coreutils の `gls` を入れておくとDiredの表示が改善する(`--group-directories-first`等)。未導入でも標準のlsで動作する
 - (macOS・任意) `trash` コマンドを入れておくと削除がゴミ箱に移動する(未導入時はEmacs標準の削除挙動になる)
+- (macOS注意) emacs-mac(Mac port)は press-and-hold(押し続けるとアクセント記号選択ポップアップが出る機能)を *デフォルトで無効化* する実装になっている([[https://github.com/railwaycat/homebrew-emacsmacport][NEWS-mac]] 参照、~ApplePressAndHoldEnabled~ を明示的に ~YES~ にしない限りoff)。そのため vanilla Cocoa Emacs や emacs-plus 向けの定番Tips(~defaults write org.gnu.Emacs ApplePressAndHoldEnabled -bool false~)は emacs-mac では基本不要(設定しても無害だが効果はない)。
+- (macOS注意) evilのhjkl等キーを押しっぱなしにした時の移動が遅いと感じる場合、真因は上記ではなく *macOSのキーリピート速度(グローバル設定)* が新規マシンでは控えめな初期値のままであることが多い。System Settings > キーボード の「キーリピート」「リピート入力認識までの時間」を最速側に寄せるか、下記で調整する(Emacsに限らずOS全体のキー入力に影響するため、変更前に必ず確認すること)。
+
+  #+begin_src sh
+  defaults write -g KeyRepeat -int 2          # 数値が小さいほど速い(既定値未設定時は中庸)
+  defaults write -g InitialKeyRepeat -int 15  # リピート開始までの遅延。小さいほど早く開始
+  #+end_src
+
+  反映にはログアウト/再ログイン、またはアプリの再起動が必要な場合がある。
 
 ** 初回起動(パッケージの事前ダウンロード)
 
