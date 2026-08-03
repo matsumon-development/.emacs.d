@@ -1,3 +1,12 @@
+;;; mylisp.el --- 既存パッケージに依存しない自作ユーティリティ関数 -*- lexical-binding: t; -*-
+
+;;; Commentary:
+
+;; 既存パッケージに依存しない自作ユーティリティ関数を置く。
+;; OS標準アプリでのファイルオープンなど、他ファイルから使う小さな補助関数をまとめる。
+
+;;; Code:
+
 (defun open-default-os-app (filename)
   (shell-command-to-string
    (format "%s %s%s%s"

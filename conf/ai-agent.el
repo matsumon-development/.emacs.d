@@ -1,5 +1,7 @@
 ;;; ai-agent.el --- AIエージェント関連の設定 -*- lexical-binding: t; -*-
-;;
+
+;;; Commentary:
+
 ;; プロジェクトルートで各種AIエージェントCLIを vterm 上で起動する設定と、
 ;; gptel (エディタ一体型のインライン書き換え & チャット) の設定をまとめたファイル。
 ;;   - Claude Code (claude)
@@ -11,6 +13,8 @@
 ;; それらに依存するため、vterm を実際に使う関数の先頭で (require 'vterm) して依存を
 ;; 明示する(vterm は :commands で遅延ロードされるので、起動時ではなく実行時に読み込む)。
 ;; init.el では package-manage の直後に (load "ai-agent") で読み込む。
+
+;;; Code:
 
 (require 'cl-lib)   ; my/define-ai-agent マクロで cl-defmacro / &key を使う
 

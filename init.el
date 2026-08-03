@@ -1,3 +1,13 @@
+;;; init.el --- 最小限のブートストラップ(ロケール・straight.el導入・load-path・conf/*.el読込) -*- lexical-binding: t; -*-
+
+;;; Commentary:
+
+;; 最小限のブートストラップのみを行う。ロケール/文字コード/改行コード設定、
+;; straight.elの導入、custom.el読込、load-path設定、conf/*.elの依存順ロードを担う。
+;; 個別の機能設定はここには置かず、conf/*.el 側に分割する。
+
+;;; Code:
+
 ;;(setq max-specpdl-size 10000)
 ;;(setq max-lisp-eval-depth 10000)
 

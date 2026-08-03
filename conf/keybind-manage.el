@@ -1,3 +1,13 @@
+;;; keybind-manage.el --- 全キーバインド定義 -*- lexical-binding: t; -*-
+
+;;; Commentary:
+
+;; 全キーバインド定義を集約する。各パッケージの設定側にはキーを書かず、
+;; ここへまとめる(何を有効化するか と どのキーで呼ぶか を分離する)。
+;; conf/*.el で定義した関数・キーマップを参照するため、load順の都合で最後に読み込む。
+
+;;; Code:
+
 ;;ファイル操作系
 (bind-key "SPC f f" 'find-file evil-normal-state-map)
 (bind-key "SPC f s" 'save-buffer evil-normal-state-map)
