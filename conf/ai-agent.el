@@ -379,9 +379,16 @@ normalステートで q を押すと閉じられるよう、キーバインド�
                "\n"))
    (t (format "%s" content))))
 
+(defun my/claude-code--blockquote (text)
+  "TEXT の各行頭に \"> \" を付け、Markdownの引用(blockquote)にして返す。
+thinking や tool_result のように「本文だが控えめに見せたい」ものに使う。"
+  (mapconcat (lambda (l) (if (string-empty-p l) ">" (concat "> " l)))
+             (split-string text "\n") "\n"))
+
 (defun my/claude-code--render-block (block)
-  "content内の1ブロック(hash-table)を整形して返す。text/thinking/tool_use/tool_result対応。
-内容が無いブロックは空文字を返す(呼び出し側で除去する)。"
+  "content内の1ブロック(hash-table)をMarkdownに整形して返す。text/thinking/tool_use/tool_result対応。
+内容が無いブロックは空文字を返す(呼び出し側で除去する)。gfm-view-modeで整形表示する前提で、
+見出しは ## 、コマンド/結果はコードブロックや引用で表す。"
   (if (not (hash-table-p block))
       (format "%s" block)
     (let ((type (gethash "type" block)))
@@ -389,48 +396,45 @@ normalステートで q を押すと閉じられるよう、キーバインド�
        ((equal type "text") (or (gethash "text" block) ""))
        ((equal type "thinking")
         ;; Claude Codeはthinking本文を保存しない場合がある(type/signatureのみ)。
-        ;; 中身が空なら見出しごと出さない。
+        ;; 中身が空なら見出しごと出さない。あるときは引用で控えめに表示。
         (let ((tt (or (gethash "thinking" block) "")))
-          (if (string-empty-p (string-trim tt)) "" (concat "〈thinking〉\n" tt))))
+          (if (string-empty-p (string-trim tt)) ""
+            (concat "> 💭 *thinking*\n>\n" (my/claude-code--blockquote tt)))))
        ((equal type "tool_use")
-        ;; ファイル操作やコマンドは一行に要約する(Edit系の変更内容は後続の
-        ;; tool_result側でdiffとして表示するので、ここではJSON全文は出さない)。
+        ;; ターミナルの ⏺ 記法に寄せる。ファイルパスはインラインコード、コマンドや
+        ;; 入力JSONはフェンス付きコードブロックにして、gfm側で着色・整形させる。
+        ;; (Edit系の変更内容は後続の tool_result 側で ```diff として表示する)
         (let* ((name (gethash "name" block))
                (input (gethash "input" block))
                (fp (and (hash-table-p input) (gethash "file_path" input)))
                (cmd (and (hash-table-p input) (gethash "command" input))))
           (cond
-           (fp  (format "〈tool_use: %s %s〉" name fp))
-           (cmd (format "〈tool_use: %s〉\n%s" name cmd))
-           (input (format "〈tool_use: %s〉\n%s" name
+           (fp  (format "⏺ **%s** `%s`" name fp))
+           (cmd (format "⏺ **%s**\n```sh\n%s\n```" name cmd))
+           (input (format "⏺ **%s**\n```json\n%s\n```" name
                           (or (ignore-errors (json-serialize input)) "")))
-           (t (format "〈tool_use: %s〉" name)))))
+           (t (format "⏺ **%s**" name)))))
        ((equal type "tool_result")
-        (concat "〈tool_result〉\n"
-                (my/claude-code--render-content (gethash "content" block))))
-       ((equal type "image") "〈image〉")
+        (let ((c (string-trim
+                  (my/claude-code--render-content (gethash "content" block)))))
+          (if (string-empty-p c) "" (my/claude-code--blockquote c))))
+       ((equal type "image") "🖼 *image*")
        (t "")))))
 
 (defun my/claude-code--render-patch (patch)
-  "structuredPatch(ハンクのベクタ)を色付きの unified diff 文字列にして返す。
+  "structuredPatch(ハンクのベクタ)を プレーンな unified diff 文字列にして返す。
 各ハンクは oldStart/oldLines/newStart/newLines/lines を持ち、
-lines の各行頭は ' '(文脈) '+'(追加) '-'(削除)。"
-  (require 'diff-mode)  ; diff-added / diff-removed 等のフェイスを使うため
+lines の各行頭は 空白(文脈) / +(追加) / -(削除)。
+着色は手動propertizeせず、呼び出し側で ```diff フェンスに入れて
+gfm-view-mode(markdown-fontify-code-blocks-natively)に色付けさせる。"
   (mapconcat
    (lambda (hunk)
      (concat
-      (propertize (format "@@ -%s,%s +%s,%s @@"
-                          (gethash "oldStart" hunk) (gethash "oldLines" hunk)
-                          (gethash "newStart" hunk) (gethash "newLines" hunk))
-                  'face 'diff-hunk-header)
+      (format "@@ -%s,%s +%s,%s @@"
+              (gethash "oldStart" hunk) (gethash "oldLines" hunk)
+              (gethash "newStart" hunk) (gethash "newLines" hunk))
       "\n"
-      (mapconcat
-       (lambda (l)
-         (let ((c (if (> (length l) 0) (aref l 0) ?\s)))
-           (propertize l 'face (cond ((eq c ?+) 'diff-added)
-                                     ((eq c ?-) 'diff-removed)
-                                     (t 'diff-context)))))
-       (gethash "lines" hunk) "\n")))
+      (mapconcat #'identity (gethash "lines" hunk) "\n")))
    patch "\n"))
 
 (defun my/claude-code-show-session ()
@@ -450,7 +454,7 @@ claudeの対話UIではvtermに過去分が残らないため、~/.claude/projec
     (with-current-buffer out
       (let ((inhibit-read-only t))
         (erase-buffer)
-        (insert (format "# Claude Code session\n# %s\n" file))
+        (insert (format "# Claude Code session\n\n`%s`\n" file))
         (dolist (line lines)
           (condition-case nil
               (let* ((obj (json-parse-string line :object-type 'hash-table :array-type 'array))
@@ -459,22 +463,35 @@ claudeの対話UIではvtermに過去分が残らないため、~/.claude/projec
                      (tur (gethash "toolUseResult" obj))
                      (patch (and (hash-table-p tur) (gethash "structuredPatch" tur))))
                 (cond
-                 ;; Edit/MultiEdit の結果は tool_result の文言ではなく色付きdiffで表示する。
+                 ;; Edit/MultiEdit の結果は tool_result の文言ではなく ```diff で表示する。
                  ((and patch (> (length patch) 0))
-                  (insert (format "\n=== EDIT: %s ===\n%s\n"
+                  (insert (format "\n⏺ **Edit** `%s`\n```diff\n%s\n```\n"
                                   (or (gethash "filePath" tur) "")
                                   (my/claude-code--render-patch patch))))
                  ((hash-table-p msg)
-                  (let ((role (or (gethash "role" msg) type "?"))
-                        (text (string-trim
-                               (my/claude-code--render-content (gethash "content" msg)))))
+                  ;; 役割ヘッダはターミナルに寄せて ▌ You / ● Claude とし、Markdown見出し
+                  ;; (##)にすることで gfm-view-mode 側で大きく・区切り明瞭に表示させる。
+                  (let* ((role (or (gethash "role" msg) type "?"))
+                         (head (cond ((equal role "user") "## ▌ You")
+                                     ((equal role "assistant") "## ● Claude")
+                                     (t (format "## %s" (upcase role)))))
+                         (text (string-trim
+                                (my/claude-code--render-content (gethash "content" msg)))))
                     (unless (string-empty-p text)
-                      (insert (format "\n=== %s ===\n%s\n" (upcase role) text)))))
+                      (insert (format "\n%s\n\n%s\n" head text)))))
                  ((equal type "summary")
-                  (insert (format "\n=== SUMMARY ===\n%s\n" (or (gethash "summary" obj) ""))))))
+                  (insert (format "\n## 📄 Summary\n\n%s\n" (or (gethash "summary" obj) ""))))))
             (error nil))))
       (goto-char (point-min))
-      (view-mode 1)
+      ;; Markdownとして「整形表示」する。見出しスケーリング・コードブロックの
+      ;; ネイティブ着色を有効にしてから gfm-view-mode(読み取り専用GFM)にし、
+      ;; マークアップ記号(## ** ` など)を隠して素の見た目に近づける。
+      (require 'markdown-mode)  ; 下記defcustomを先に定義させ、free variable警告も防ぐ
+      (setq markdown-header-scaling t
+            markdown-fontify-code-blocks-natively t)
+      (gfm-view-mode)
+      (when (fboundp 'markdown-toggle-markup-hiding)
+        (markdown-toggle-markup-hiding 1))
       (my/claude-session-mode 1))
     (pop-to-buffer out)))
 
