@@ -192,7 +192,8 @@ FRAME-NAME 別フレームに切り出す際のフレーム名 (例: \"Claude Co
        ;; キーバインドや共通処理側は my/ai-agents を辿ることで
        ;; エージェントを増やしても自動的に対応できる。
        (setq my/ai-agents
-             (cons (cons ,command (list :run            #',run-sym
+             (cons (cons ,command (list :command         ,command
+                                        :run            #',run-sym
                                         :buffer-name     #',bufname-sym
                                         :pop-to-frame    #',frame-sym
                                         :back-to-window  #',back-sym
@@ -577,35 +578,132 @@ Ghostty等で `tmux new -s claude` してから claude を起動しておく運�
   "非nilなら貼り付け後に Enter を送って即送信する。
 nil(既定)なら貼り付けのみで、送信するかは対象側で手動確認する。")
 
+(defun my/ai-agent--tmux-session-exists-p (session)
+  "tmux セッション SESSION が存在すれば非nilを返す(tmux未起動なら nil)。"
+  (and (executable-find "tmux")
+       (zerop (call-process "tmux" nil nil nil "has-session" "-t" session))))
+
+(defun my/ai--tmux-send-text (session text &optional send-enter)
+  "TEXT を tmux セッション SESSION へ bracketed paste で送る。
+load-buffer(stdin)で paste-buffer に読み込み、paste-buffer -p(bracketed paste)で
+貼り付ける。複数行は「1回の貼り付け」として渡り、行ごとに実行/送信されない。
+SEND-ENTER が非nilなら最後に Enter を送って送信する。"
+  (unless (executable-find "tmux")
+    (user-error "tmux が見つかりません。brew install tmux を実行してください"))
+  (with-temp-buffer
+    (insert text)
+    (unless (zerop (call-process-region (point-min) (point-max)
+                                        "tmux" nil nil nil "load-buffer" "-"))
+      (user-error "tmux load-buffer に失敗しました(tmux は起動していますか?)")))
+  (unless (zerop (call-process "tmux" nil nil nil
+                               "paste-buffer" "-d" "-p" "-t" session))
+    (user-error "tmux paste-buffer に失敗(対象 \"%s\" は起動中ですか? tmux ls で確認)" session))
+  (when send-enter
+    (call-process "tmux" nil nil nil "send-keys" "-t" session "Enter")))
+
 (defun my/send-visual-selection-to-tmux ()
   "Visualステートの選択範囲を、tmux ペイン(`my/ai-tmux-target')へ送る。
 vterm を経由せず、外部ターミナルで tmux 実行中のエージェントへ bracketed paste する。
 ペイロード整形は vterm 版と共通(`my/ai--visual-selection-payload')。"
   (interactive)
-  (unless (executable-find "tmux")
-    (user-error "tmux が見つかりません。brew install tmux を実行してください"))
   (let ((payload (my/ai--visual-selection-payload))
         (target my/ai-tmux-target))
-    ;; 送信先の存在を先に確認する。tmux未起動やセッション名違いを、原因の分かる
-    ;; メッセージで弾く(has-sessionはサーバ未起動でも非ゼロで返る)。
-    (unless (zerop (call-process "tmux" nil nil nil "has-session" "-t" target))
+    ;; 送信先の存在を先に確認し、tmux未起動やセッション名違いを弾く。
+    (unless (my/ai-agent--tmux-session-exists-p target)
       (user-error "tmux ターゲット \"%s\" が見つかりません。Ghosttyで `tmux new -s %s` してから claude 等を起動してください(送信先は my/ai-tmux-target で変更可)"
                   target target))
     (evil-normal-state)
-    ;; ペイロードを tmux の paste-buffer に読み込む(stdin から)
-    (with-temp-buffer
-      (insert payload)
-      (unless (zerop (call-process-region (point-min) (point-max)
-                                          "tmux" nil nil nil "load-buffer" "-"))
-        (user-error "tmux load-buffer に失敗しました(tmux は起動していますか?)")))
-    ;; bracketed paste(-p)で対象ペインへ貼り付け、使い終わったバッファは削除(-d)
-    (unless (zerop (call-process "tmux" nil nil nil
-                                 "paste-buffer" "-d" "-p" "-t" target))
-      (user-error "tmux paste-buffer に失敗(対象 \"%s\" は起動中ですか? tmux ls で確認)" target))
-    (when my/ai-tmux-send-enter
-      (call-process "tmux" nil nil nil "send-keys" "-t" target "Enter"))
+    (my/ai--tmux-send-text target payload my/ai-tmux-send-enter)
     (message "tmux[%s] に選択範囲を送信しました%s"
              target (if my/ai-tmux-send-enter "(Enter送信)" ""))))
+
+;; ---------------------------------------------------------------------
+;; SPC a c: claude を vterm と tmux(外部Ghostty)のどちらで起動するか選ぶ
+;; ---------------------------------------------------------------------
+;; vterm … 従来どおりEmacs内のvtermバッファで起動。
+;; tmux  … 新しいGhosttyウィンドウを開き、その中でtmuxセッション+claudeを起動する。
+;;         セッション名はエージェントのバッファ名(例 *claude-code:proj*)を整形した
+;;         もの(claude-code-proj)。起動後は SPC a s t の送信先もそのセッションに合わせる。
+(defun my/ai-agent--tmux-session-name (buffer-name)
+  "BUFFER-NAME(バッファ名文字列)から tmux セッション名を作る。
+tmux で使えない/紛らわしい文字(前後の *、および : . 空白)を除去/ - に置換する。
+例: \"*claude-code:myproj*\" -> \"claude-code-myproj\"。"
+  (let ((raw (replace-regexp-in-string "\\`\\*+\\|\\*+\\'" "" buffer-name)))
+    (replace-regexp-in-string "[:.[:space:]]+" "-" raw)))
+
+(defvar my/ai-tmux-ghostty-window-size '(100 . 30)
+  "tmux 起動で開く Ghostty ウィンドウのサイズ (幅列 . 高行)。
+Ghostty の --window-width / --window-height(グリッドの列数・行数)に渡す。
+nil ならサイズ指定せず Ghostty の既定に任せる。")
+
+(defun my/ai-agent--tmux-ghostty-position ()
+  "Ghostty を開くモニターの左上ピクセル座標 (X . Y) を返す(非GUIなら nil)。
+モニターが複数なら Emacs のいるモニターとは別のモニター、1枚ならそのモニターの左上。
+Ghostty の --window-position-x/y はプライマリモニター左上原点なので、
+Emacs の geometry(同じ原点)の左上をそのまま渡す。"
+  (when (display-graphic-p)
+    (let* ((monitors (display-monitor-attributes-list))
+           (cur (frame-monitor-attributes))
+           (target (if (<= (length monitors) 1)
+                       cur
+                     (or (seq-find (lambda (m) (not (equal (alist-get 'workarea m)
+                                                           (alist-get 'workarea cur))))
+                                   monitors)
+                         cur))))
+      (pcase-let ((`(,x ,y ,_w ,_h) (alist-get 'geometry target)))
+        (cons x y)))))
+
+(defun my/ai-agent-run-in-tmux (command bufname-fn)
+  "COMMAND(例 \"claude\")を、外部Ghostty上のtmuxセッションで起動する。
+セッション名は BUFNAME-FN のバッファ名を整形したもの(`my/ai-agent--tmux-session-name')。
+`open -na Ghostty.app --args -e tmux new-session -A -s <session> -c <root>'
+の要領で新しいGhosttyウィンドウを開き、その中で tmux セッション+コマンドを立ち上げる
+(-A なので同名セッションが既にあれば再利用する)。起動したセッション名を
+`my/ai-tmux-target' にセットし、以後 `SPC a s t' の送信先をそのセッションに合わせる。
+ウィンドウは対象モニター(複数時は Emacs と別モニター)の左上に置く。Emacs には触らない。"
+  (unless (executable-find "tmux")
+    (user-error "tmux が見つかりません。brew install tmux を実行してください"))
+  (let* ((root (my/ai-agent-project-root))
+         (session (my/ai-agent--tmux-session-name (funcall bufname-fn root)))
+         (pos (my/ai-agent--tmux-ghostty-position))
+         (size my/ai-tmux-ghostty-window-size)
+         ;; --window-position/width/height は -e より前に置く。
+         (win-args (append
+                    (when pos
+                      (list (format "--window-position-x=%d" (car pos))
+                            (format "--window-position-y=%d" (cdr pos))))
+                    (when size
+                      (list (format "--window-width=%d" (car size))
+                            (format "--window-height=%d" (cdr size)))))))
+    ;; -c でプロジェクトルートを起動ディレクトリに指定する。open(launchd)経由で
+    ;; 起動するプロセスの作業ディレクトリはHOMEになるため、指定しないと claude が
+    ;; HOMEで立ち上がってしまう(vterm版が cd しているのと同じ意図)。
+    ;; (open -g だと -n の新規インスタンスが起動しないため使えない)
+    (apply #'call-process "open" nil nil nil
+           "-na" "Ghostty.app" "--args"
+           (append win-args
+                   (list "-e" "tmux" "new-session" "-A" "-s" session "-c" root command)))
+    ;; open は Ghostty を前面化してフォーカスを奪う。少し待ってウィンドウが出そろってから
+    ;; Emacs を再アクティブ化してフォーカスを戻す(Emacs で作業を続けられるように)。
+    (let ((frame (selected-frame)))
+      (run-at-time 0.8 nil
+                   (lambda ()
+                     (when (frame-live-p frame)
+                       (select-frame-set-input-focus frame)))))
+    (setq my/ai-tmux-target session)
+    (message "Ghosttyでtmuxセッション \"%s\"(%s)を起動しました(SPC a s t の送信先も設定)"
+             session root)))
+
+(defun my/run-claude-code-choose ()
+  "claude を vterm と tmux(外部Ghostty)のどちらで起動するか選んで実行する。
+既定は vterm。tmux を選ぶと新しいGhosttyウィンドウで tmux セッションとして起動する。"
+  (interactive)
+  (let ((choice (completing-read "Claudeの起動方法: " '("vterm" "tmux")
+                                 nil t nil nil "vterm")))
+    (cond
+     ((string= choice "vterm") (my/run-claude-code))
+     ((string= choice "tmux")
+      (my/ai-agent-run-in-tmux "claude" #'my/claude-code-buffer-name)))))
 
 ;; =====================================================================
 ;; 4. デフォルトAIツールのプロンプト起動

@@ -210,7 +210,8 @@
 ;;-----------------------------------------------------------
 (which-key-add-key-based-replacements "SPC a" "AI Agents")
 (bind-key "SPC a g" 'my/run-agy evil-normal-state-map)
-(bind-key "SPC a c" 'my/run-claude-code evil-normal-state-map)
+;; SPC a c: claude を vterm と tmux(外部Ghostty)のどちらで起動するか選ぶ。
+(bind-key "SPC a c" 'my/run-claude-code-choose evil-normal-state-map)
 (bind-key "SPC a b" 'my/run-bob evil-normal-state-map)
 ;; SPC a f: 今ウィンドウに表示中のAIエージェントを別フレームへ切り出す /
 ;; SPC a w: 別フレームから元のフレームの分割へ戻す。
