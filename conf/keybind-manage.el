@@ -269,11 +269,13 @@
 
 ;; プロンプト編集バッファ(compose)内のキーバインド。
 ;;   C-c C-c … 送信してバッファ・ウィンドウを閉じる(normal/insert両方で)
+;;   C-c C-i … クリップボードの画像をPNG保存し、そのパスを挿入(送信でclaudeが画像を読む)
 ;;   C-c C-k … 送信せず中止して閉じる
 ;;   q        … normalステートで中止して閉じる
 (with-eval-after-load 'evil
   (evil-define-key '(normal insert) my/ai-compose-mode-map
     (kbd "C-c C-c") #'my/ai-agent-compose-send
+    (kbd "C-c C-i") #'my/ai-compose-insert-image
     (kbd "C-c C-k") #'my/ai-agent-compose-abort)
   (evil-define-key 'normal my/ai-compose-mode-map "q" #'my/ai-agent-compose-abort))
 

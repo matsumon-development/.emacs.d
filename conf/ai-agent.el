@@ -587,11 +587,14 @@ nil(既定)なら貼り付けのみで、送信するかは対象側で手動確
   (and (executable-find "tmux")
        (zerop (call-process "tmux" nil nil nil "has-session" "-t" session))))
 
-(defun my/ai--tmux-send-text (session text &optional send-enter)
+(defun my/ai--tmux-send-text (session text &optional send-enter enter-delay)
   "TEXT を tmux セッション SESSION へ bracketed paste で送る。
 load-buffer(stdin)で paste-buffer に読み込み、paste-buffer -p(bracketed paste)で
 貼り付ける。複数行は「1回の貼り付け」として渡り、行ごとに実行/送信されない。
-SEND-ENTER が非nilなら最後に Enter を送って送信する。"
+SEND-ENTER が非nilなら最後に Enter を送って送信する。
+ENTER-DELAY(秒)が指定されれば、ペースト後 Enter を送る前にその時間だけ待つ
+(claude が貼り付けた画像パスを添付として認識する猶予。間を置かないと Enter が
+添付処理に吸われて送信されないことがある)。"
   (unless (executable-find "tmux")
     (user-error "tmux が見つかりません。brew install tmux を実行してください"))
   (with-temp-buffer
@@ -603,6 +606,7 @@ SEND-ENTER が非nilなら最後に Enter を送って送信する。"
                                "paste-buffer" "-d" "-p" "-t" session))
     (user-error "tmux paste-buffer に失敗(対象 \"%s\" は起動中ですか? tmux ls で確認)" session))
   (when send-enter
+    (when (and enter-delay (> enter-delay 0)) (sleep-for enter-delay))
     (call-process "tmux" nil nil nil "send-keys" "-t" session "Enter")))
 
 (defun my/send-visual-selection-to-tmux ()
@@ -759,6 +763,9 @@ Emacs の geometry(同じ原点)の左上をそのまま渡す。"
   (:tmux . SESSION) … 外部ターミナルの tmux セッションへ送る
   (:vterm . BUFFER) … Emacs内のエージェントvtermバッファへ送る")
 
+(defvar-local my/ai-compose--preview-buffers nil
+  "このコンポーズで開いた画像プレビューバッファのリスト。閉じる際にまとめて片付ける。")
+
 (define-minor-mode my/ai-compose-mode
   "AIエージェントへ送るプロンプトを編集する専用バッファであることを示すマイナーモード。
 送信(C-c C-c)・中止(C-c C-k / q)のキーバインドは keybind-manage.el で束縛する。"
@@ -823,10 +830,25 @@ vtermのプロンプト欄は打ちづらいため、通常バッファで入力
 
 (defun my/ai-agent-compose--close ()
   "コンポーズバッファとそのウィンドウを閉じる(送信/中止の共通後処理)。"
-  (let ((buf (current-buffer)))
+  (let ((buf (current-buffer))
+        (previews my/ai-compose--preview-buffers))
+    ;; 画像プレビューのウィンドウとバッファを片付ける。
+    ;; ※ プレビューを閉じても一時PNGファイル自体は消さない。送信直後にclaudeが
+    ;;   そのパスを読むため、ファイルはOSの一時領域の掃除に任せる。
+    (dolist (pbuf previews)
+      (when (buffer-live-p pbuf)
+        (dolist (win (get-buffer-window-list pbuf nil t))
+          (when (window-live-p win) (ignore-errors (delete-window win))))
+        (kill-buffer pbuf)))
     (when (> (count-windows) 1)
       (delete-window))
     (kill-buffer buf)))
+
+(defvar my/ai-compose-send-delay 0.4
+  "compose送信時、bracketed paste から Enter を送るまでの待ち時間(秒)。
+claude は貼り付けた画像パスを画像添付として認識する処理に少し時間がかかり、
+間を置かずに Enter を送ると Enter が添付処理に吸われて送信されないことがある。
+そこでペースト後わずかに待ってから Enter を送る。0 にすると待たない。")
 
 (defun my/ai-agent-compose-send ()
   "コンポーズバッファの内容を送信先へ送り、バッファとウィンドウを閉じる。
@@ -844,13 +866,17 @@ vtermバッファならそのvtermへ送る。"
        (unless (my/ai-agent--tmux-session-exists-p session)
          (user-error "tmuxセッション \"%s\" がありません(閉じられた可能性)" session))
        ;; bracketed paste + Enter で、複数行を1入力として渡してから送信する
-       (my/ai--tmux-send-text session text t))
+       ;; (画像パス添付の認識を待つため Enter 前に my/ai-compose-send-delay 秒待つ)
+       (my/ai--tmux-send-text session text t my/ai-compose-send-delay))
       (`(:vterm . ,buffer)
        (unless (buffer-live-p buffer)
          (user-error "送信先のAIエージェントバッファがありません"))
        (with-current-buffer buffer
          ;; bracketed pasteで複数行も途中送信されず1入力として渡し、最後にReturnで送信する
          (vterm-send-string text t)
+         ;; claudeが画像パスを添付として認識する猶予。間を置かないとReturnが吸われる
+         (when (> my/ai-compose-send-delay 0)
+           (sit-for my/ai-compose-send-delay))
          (vterm-send-return)))
       (_ (user-error "送信先が解決できません")))
     (my/ai-agent-compose--close)))
@@ -859,6 +885,82 @@ vtermバッファならそのvtermへ送る。"
   "コンポーズを中止し、バッファとウィンドウを閉じる(送信しない)。"
   (interactive)
   (my/ai-agent-compose--close))
+
+;; --- クリップボード画像の添付(compose用) ---------------------------------
+;; vterm/tmux 上の Claude Code には画像バイナリを直接貼り付けられないが、画像の
+;; ファイルパスをプロンプトに渡せば Claude Code がそのパスの画像を読み込む。
+;; そこでクリップボードの画像をPNGに保存し、そのパスを compose バッファへ挿入する。
+;; 送信(C-c C-c)すると通常テキストと同様にパスが claude へ渡り、画像が読み込まれる。
+;; pngpaste 等の外部導入に依存せず、macOS標準の osascript だけで完結させる。
+(defconst my/clipboard-image-to-png-applescript
+  (concat
+   "on run argv\n"
+   "  try\n"
+   "    set pngData to (the clipboard as «class PNGf»)\n"
+   "  on error\n"
+   "    return \"NOIMAGE\"\n"
+   "  end try\n"
+   "  set f to open for access (POSIX file (item 1 of argv)) with write permission\n"
+   "  set eof f to 0\n"
+   "  write pngData to f\n"
+   "  close access f\n"
+   "  return \"OK\"\n"
+   "end run")
+  "クリップボード画像をPNGとして引数のパスへ書き出すAppleScript。画像が無ければ NOIMAGE を返す。")
+
+(defun my/clipboard-image-to-file ()
+  "macOSのクリップボードにある画像をPNGで一時ファイルへ書き出し、そのパスを返す。
+クリップボードに画像が無ければ nil を返す。"
+  (unless (eq system-type 'darwin)
+    (user-error "クリップボード画像の取り込みはmacOSのみ対応です"))
+  (let* ((file (make-temp-file "claude-clip-" nil ".png"))
+         ;; osascript は画像の色空間変換などで stderr に警告
+         ;; ("*** Error creating a JP2 color space ...") を出すことがある。
+         ;; stdout と混ざると戻り値判定("OK")が崩れるため、stderr は分離して捨てる。
+         (result (with-temp-buffer
+                   (call-process "osascript" nil (list t nil) nil
+                                 "-e" my/clipboard-image-to-png-applescript file)
+                   (string-trim (buffer-string)))))
+    (if (string= result "OK")
+        file
+      (ignore-errors (delete-file file))
+      nil)))
+
+(defun my/ai-compose--preview-image (file)
+  "FILE の画像を compose ウィンドウの隣(右側)に表示する(フォーカスは移さない)。
+表示したバッファを返す。"
+  (let* ((buf (find-file-noselect file))
+         (win (display-buffer
+               buf '((display-buffer-in-direction)
+                     (direction . right)
+                     (window-width . 0.5)))))
+    (when (window-live-p win)
+      ;; ウィンドウが割り当たった状態でウィンドウ幅に合わせて縮小表示する
+      (with-selected-window win
+        (when (derived-mode-p 'image-mode)
+          (setq-local image-auto-resize 'fit-window)
+          (ignore-errors (image-toggle-display-image)))))
+    buf))
+
+(defun my/ai-compose-insert-image ()
+  "クリップボードの画像をPNGに保存し、そのパスを compose バッファへ挿入する。
+あわせて、その画像を compose ウィンドウの隣に別ウィンドウでプレビュー表示する。
+送信すると Claude Code 等がそのパスの画像を読み込む。"
+  (interactive)
+  (unless (bound-and-true-p my/ai-compose-mode)
+    (user-error "コンポーズバッファではありません"))
+  (let ((file (my/clipboard-image-to-file)))
+    (unless file
+      (user-error "クリップボードに画像がありません"))
+    ;; 直前が行頭/空白でなければ、区切りの空白を1つ入れてから挿入する
+    (unless (or (bolp) (memq (char-before) '(?\s ?\t ?\n)))
+      (insert " "))
+    (insert file " ")
+    ;; 隣のウィンドウにプレビューを出し、閉じるとき片付けられるよう記録しておく
+    (let ((pbuf (my/ai-compose--preview-image file)))
+      (when (buffer-live-p pbuf)
+        (push pbuf my/ai-compose--preview-buffers)))
+    (message "画像を添付: %s" file)))
 
 (defun my/send-visual-selection-to-compose ()
   "Visualステートで選択中のテキストを、ファイルパスと行:列範囲付きで
