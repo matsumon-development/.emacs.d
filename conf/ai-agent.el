@@ -559,6 +559,54 @@ TOOL(コマンド名文字列)省略時はデフォルトのAIツールに送る
                          (vterm-send-string txt t))))
                    (get-buffer buffer-name) payload))))
 
+;; ---------------------------------------------------------------------
+;; 選択範囲を「外部ターミナルの tmux ペイン」へ送る(vtermを使わない経路)
+;; ---------------------------------------------------------------------
+;; Emacs内蔵のvtermではなく、Ghostty等のターミナル内で tmux 実行中の
+;; claude/agy/bob へ、選択範囲を送りたい場合に使う。GhosttyはAppleScript制御を
+;; 持たないため、ターミナルemulatorに依存しない tmux を仲介役にする。
+;; 送信は `tmux load-buffer`(ペイロードをpaste-bufferへ)+ `paste-buffer -p`
+;; (bracketed paste)で行う。bracketed pasteにより複数行が「1回の貼り付け」
+;; として扱われ、行ごとに実行/送信されない(vterm側の paste-p と同じ狙い)。
+(defvar my/ai-tmux-target "claude"
+  "選択範囲プロンプトの送信先 tmux ターゲット。
+セッション名(例: \"claude\")か、session:window.pane 形式(例: \"claude:0.1\")。
+Ghostty等で `tmux new -s claude` してから claude を起動しておく運用を想定。")
+
+(defvar my/ai-tmux-send-enter nil
+  "非nilなら貼り付け後に Enter を送って即送信する。
+nil(既定)なら貼り付けのみで、送信するかは対象側で手動確認する。")
+
+(defun my/send-visual-selection-to-tmux ()
+  "Visualステートの選択範囲を、tmux ペイン(`my/ai-tmux-target')へ送る。
+vterm を経由せず、外部ターミナルで tmux 実行中のエージェントへ bracketed paste する。
+ペイロード整形は vterm 版と共通(`my/ai--visual-selection-payload')。"
+  (interactive)
+  (unless (executable-find "tmux")
+    (user-error "tmux が見つかりません。brew install tmux を実行してください"))
+  (let ((payload (my/ai--visual-selection-payload))
+        (target my/ai-tmux-target))
+    ;; 送信先の存在を先に確認する。tmux未起動やセッション名違いを、原因の分かる
+    ;; メッセージで弾く(has-sessionはサーバ未起動でも非ゼロで返る)。
+    (unless (zerop (call-process "tmux" nil nil nil "has-session" "-t" target))
+      (user-error "tmux ターゲット \"%s\" が見つかりません。Ghosttyで `tmux new -s %s` してから claude 等を起動してください(送信先は my/ai-tmux-target で変更可)"
+                  target target))
+    (evil-normal-state)
+    ;; ペイロードを tmux の paste-buffer に読み込む(stdin から)
+    (with-temp-buffer
+      (insert payload)
+      (unless (zerop (call-process-region (point-min) (point-max)
+                                          "tmux" nil nil nil "load-buffer" "-"))
+        (user-error "tmux load-buffer に失敗しました(tmux は起動していますか?)")))
+    ;; bracketed paste(-p)で対象ペインへ貼り付け、使い終わったバッファは削除(-d)
+    (unless (zerop (call-process "tmux" nil nil nil
+                                 "paste-buffer" "-d" "-p" "-t" target))
+      (user-error "tmux paste-buffer に失敗(対象 \"%s\" は起動中ですか? tmux ls で確認)" target))
+    (when my/ai-tmux-send-enter
+      (call-process "tmux" nil nil nil "send-keys" "-t" target "Enter"))
+    (message "tmux[%s] に選択範囲を送信しました%s"
+             target (if my/ai-tmux-send-enter "(Enter送信)" ""))))
+
 ;; =====================================================================
 ;; 4. デフォルトAIツールのプロンプト起動
 ;; =====================================================================
