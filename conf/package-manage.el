@@ -452,13 +452,6 @@ The description of ARG is in `neo-buffer--execute'."
   :after dired
   )
 
-;; スペースキー等の操作でファイルをプレビュー(Finderのクイックルック相当)
-(use-package dired-preview
-  :straight t
-  :hook (dired-mode . dired-preview-mode)
-  :custom
-  (dired-preview-delay 0.2)
-  (dired-preview-max-size (* 10 1024 1024)))
 ;;----------------------------------------------------------------------------------------
 ;;                 補完
 ;;----------------------------------------------------------------------------------------
