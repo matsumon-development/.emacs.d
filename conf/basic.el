@@ -129,16 +129,52 @@
 ;; GNU ls (coreutils) があれば使う。macOS標準のBSD lsには無い --group-directories-first 等が使える
 (when (executable-find "gls")
   (setq insert-directory-program "gls"))
+;; -t で更新時刻順にし、-r は付けない(付けると逆順=古い順になるため)。結果、新しいものが上に来る。
 (setq dired-listing-switches
       (if (executable-find "gls")
-          "-alrth --group-directories-first" ; ディレクトリを先頭にまとめ、サイズを人間が読める単位で表示
-        "-alrt"))
+          "-alth --group-directories-first" ; ディレクトリを先頭にまとめ、サイズを人間が読める単位で、更新の新しい順に表示
+        "-alt"))
 
 ;; diredを2つのウィンドウで開いている時に、デフォルトの移動orコピー先をもう一方のdiredで開いているディレクトリにする
 (setq dired-dwim-target t)
 
 ;; パーミッション等の詳細情報を隠し、Finderのようにすっきりした表示にする。( キーでいつでも切替可能
 (add-hook 'dired-mode-hook #'dired-hide-details-mode)
+
+;; ただし更新日時だけは表示したい(Finderの「変更日」相当)。
+;; dired-hide-details-mode はファイル名の前の詳細列(権限・所有者・サイズ・日時)を
+;; 1つの不可視領域としてまとめて隠すため、部分的に日時だけ残すオプションが無い。
+;; そこで readin 後に、その不可視領域のうち日時部分の invisible 属性だけを外して可視化する。
+;; 日時書式は ls 依存で一定しないため(BSD ls: "Aug  3 23:42" / "Aug  3  2024"、
+;; GNU ls --time-style=long-iso: "2026-08-03 14:20")、両方を検出できる正規表現で探す。
+(defconst my/dired-modification-time-regexp
+  (concat
+   ;; GNU ls (long-iso): YYYY-MM-DD HH:MM
+   "[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\} [0-9]\\{2\\}:[0-9]\\{2\\}"
+   "\\|"
+   ;; BSD ls / GNU ls (locale): 月 日 (時刻 or 年)。月名は先頭大文字3字なので
+   ;; 小文字始まりの所有者・グループ名や数字のサイズ列とは衝突しない。
+   "[A-Z][a-z][a-z] +[0-9]\\{1,2\\} +\\(?:[0-9]\\{2\\}:[0-9]\\{2\\}\\|[0-9]\\{4\\}\\)")
+  "Dired の一覧行から更新日時部分を切り出すための正規表現。")
+
+(defun my/dired-reveal-modification-time ()
+  "dired-hide-details-mode で隠れる詳細のうち、更新日時だけを再表示する。"
+  (when (derived-mode-p 'dired-mode)
+    (with-silent-modifications
+      (save-excursion
+        (goto-char (point-min))
+        (while (not (eobp))
+          (when (dired-move-to-filename)
+            (let ((filename-beg (point)))
+              (beginning-of-line)
+              ;; bol〜ファイル名の間(=隠された詳細列)から日時だけを探して可視化する
+              (when (re-search-forward my/dired-modification-time-regexp
+                                       filename-beg t)
+                (remove-text-properties (match-beginning 0) (match-end 0)
+                                        '(invisible nil)))))
+          (forward-line 1))))))
+;; dired-insert-set-properties が invisible を付けた後に走らせたいので readin 後フックに置く
+(add-hook 'dired-after-readin-hook #'my/dired-reveal-modification-time)
 
 ;; 削除はFinderと同じくゴミ箱に移動する(誤delete対策)。macOS 14+ 標準の`trash`コマンドを利用
 (setq delete-by-moving-files-to-trash t)
