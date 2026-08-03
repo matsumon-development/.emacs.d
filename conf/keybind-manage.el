@@ -9,7 +9,9 @@
 ;;; Code:
 
 ;;ファイル操作系
-(bind-key "SPC f f" 'find-file evil-normal-state-map)
+;; アイコン付き補完(all-the-icons-ivy-rich)は counsel 系コマンドにのみ表示変換を
+;; 登録するため、素の find-file ではアイコンが出ない。counsel-find-file を使う。
+(bind-key "SPC f f" 'counsel-find-file evil-normal-state-map)
 (bind-key "SPC f s" 'save-buffer evil-normal-state-map)
 (bind-key "SPC f r" 'counsel-recentf evil-normal-state-map)
 (bind-key "SPC f c" 'copy-file evil-normal-state-map)
