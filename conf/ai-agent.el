@@ -925,14 +925,7 @@ ai-composeバッファへ挿入する(vtermのプロンプトへ直接送るの�
         whisper-return-cursor 'start)   ; 入力後、カーソルを挿入テキストの先頭に戻す
 
   ;; --- macOS: 録音デバイス(avfoundation)の指定 ---
-  ;; macOS では whisper.el がデバイスを自動選択せず、明示指定が必須
-  ;; (未設定だと "Set a suitable value for whisper--ffmpeg-input-device" で失敗する)。
-  ;; 値は ":<音声デバイス番号>"(先頭コロン=映像なし+音声のみ)。
-  ;; デバイス番号は次で確認できる:
-  ;;   ffmpeg -f avfoundation -list_devices true -i ""
-  ;; ":1" = OpenRun Pro 2 by Shokz。使うマイクを変えたら番号を合わせること。
-  ;; 注意: Bluetooth機器は接続状況でインデックスがずれることがある。
-  (setq whisper--ffmpeg-input-device ":1")
+  (setq whisper--ffmpeg-input-device ":default")
 
   ;; --- macOS: マイク使用許可 ---
   ;; 上記デバイスを設定した上で初めて録音を試みると、macOS がマイク許可を求める。
