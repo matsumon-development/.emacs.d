@@ -750,8 +750,10 @@ Emacs の geometry(同じ原点)の左上をそのまま渡す。"
 (defvar my/ai-compose-buffer-name "*ai-compose*"
   "AIエージェント向けプロンプト編集バッファの名前。")
 
-(defvar-local my/ai-compose-target-buffer nil
-  "このコンポーズバッファの送信先AIエージェントvtermバッファ。")
+(defvar-local my/ai-compose-target nil
+  "このコンポーズバッファの送信先。`my/ai-compose--resolve-target' が返す指定子。
+  (:tmux . SESSION) … 外部ターミナルの tmux セッションへ送る
+  (:vterm . BUFFER) … Emacs内のエージェントvtermバッファへ送る")
 
 (define-minor-mode my/ai-compose-mode
   "AIエージェントへ送るプロンプトを編集する専用バッファであることを示すマイナーモード。
@@ -760,25 +762,43 @@ Emacs の geometry(同じ原点)の左上をそのまま渡す。"
   :keymap (make-sparse-keymap))
 
 (defun my/ai-compose--resolve-target ()
-  "コンポーズの送信先エージェントvtermバッファを返す(無ければ起動して返す)。
-優先順位: 現在バッファのエージェント → 表示中のエージェント → デフォルトツール。"
-  (let ((agent (or (my/ai-agent-current) (my/ai-agent-displayed))))
-    (if agent
-        ;; 表示判定はできてもバッファが消えている場合があるので、無ければ起動し直す
-        (or (get-buffer (funcall (plist-get agent :buffer-name)))
-            (progn (funcall (plist-get agent :run))
-                   (get-buffer (funcall (plist-get agent :buffer-name)))))
-      ;; どのエージェントも見当たらなければデフォルトツールを起動する
-      (let* ((tool (my/get-default-ai-tool))
-             (a (or (my/ai-agent-get tool)
-                    (user-error "未対応のAIツールです: %s" tool))))
-        (funcall (plist-get a :run))
-        (get-buffer (funcall (plist-get a :buffer-name)))))))
+  "コンポーズの送信先を解決して指定子を返す。
+対象エージェントは 現在バッファ → 表示中 → デフォルトツール の順で決める。
+そのエージェント/プロジェクトについて次の順で解決する:
+  1) tmux セッションが既に在れば (:tmux . SESSION)(vtermは開かない)
+  2) vterm バッファが既に在れば (:vterm . BUFFER)
+  3) どちらも起動していなければ、tmux と vterm のどちらで起動するか尋ね
+     (ポップアップは tmux を先頭に・既定も tmux)、選んだ方を起動して指定子を返す。"
+  (let* ((agent (or (my/ai-agent-current) (my/ai-agent-displayed)
+                    (my/ai-agent-get (my/get-default-ai-tool))
+                    (user-error "対象のAIエージェントを特定できません")))
+         (command    (plist-get agent :command))
+         (bufname-fn (plist-get agent :buffer-name))
+         (root       (my/ai-agent-project-root))
+         (session    (my/ai-agent--tmux-session-name (funcall bufname-fn root))))
+    (cond
+     ;; 1) tmux セッションが既にある → tmux優先(vtermは開かない)
+     ((my/ai-agent--tmux-session-exists-p session)
+      (cons :tmux session))
+     ;; 2) vterm が既に起動している → それを使う
+     ((get-buffer (funcall bufname-fn root))
+      (cons :vterm (get-buffer (funcall bufname-fn root))))
+     ;; 3) どちらも未起動 → 起動方法を確認(tmuxを先頭・既定に)して起動する
+     (t
+      (let ((choice (completing-read
+                     (format "%s の起動方法(未起動): " command)
+                     '("tmux" "vterm") nil t nil nil "tmux")))
+        (if (string= choice "tmux")
+            (progn (my/ai-agent-run-in-tmux command bufname-fn)
+                   (cons :tmux session))
+          (funcall (plist-get agent :run))
+          (cons :vterm (get-buffer (funcall bufname-fn root)))))))))
 
 (defun my/ai-agent-compose ()
   "AIエージェントへ送るプロンプトを専用バッファで編集する。
 vtermのプロンプト欄は打ちづらいため、通常バッファで入力し C-c C-c で送信する。
-送信先は現在/表示中のエージェント、無ければデフォルトツール(必要なら起動)。"
+送信先はプロジェクトの claude 用 tmux セッションが在ればそれ(vtermは開かない)、
+無ければ現在/表示中のエージェント、それも無ければデフォルトツール(必要なら起動)。"
   (interactive)
   (let ((target (my/ai-compose--resolve-target))
         (buf (get-buffer-create my/ai-compose-buffer-name)))
@@ -787,7 +807,7 @@ vtermのプロンプト欄は打ちづらいため、通常バッファで入力
       ;; major-mode設定でローカル変数が消えるので、送信先の記録は最後に行う
       (text-mode)
       (my/ai-compose-mode 1)
-      (setq my/ai-compose-target-buffer target))
+      (setq my/ai-compose-target target))
     ;; 小さなvtermウィンドウ等から呼ぶと選択中ウィンドウの分割に失敗するため、
     ;; my/vterm-pop-to-buffer-oriented(選択ウィンドウを分割)は使わず、
     ;; フレーム最下部に十分な高さのウィンドウを確保して表示・選択する。
@@ -805,20 +825,30 @@ vtermのプロンプト欄は打ちづらいため、通常バッファで入力
     (kill-buffer buf)))
 
 (defun my/ai-agent-compose-send ()
-  "コンポーズバッファの内容を送信先エージェントのvtermへ送り、バッファとウィンドウを閉じる。"
+  "コンポーズバッファの内容を送信先へ送り、バッファとウィンドウを閉じる。
+送信先(`my/ai-compose-target')が tmux セッションならそこへ bracketed paste + Enter で送る。
+vtermバッファならそのvtermへ送る。"
   (interactive)
   (unless (bound-and-true-p my/ai-compose-mode)
     (user-error "コンポーズバッファではありません"))
-  (let ((target my/ai-compose-target-buffer)
+  (let ((target my/ai-compose-target)
         (text (string-trim (buffer-substring-no-properties (point-min) (point-max)))))
     (when (string-empty-p text)
       (user-error "送信する内容がありません"))
-    (unless (buffer-live-p target)
-      (user-error "送信先のAIエージェントバッファがありません"))
-    (with-current-buffer target
-      ;; bracketed pasteで複数行も途中送信されず1入力として渡し、最後にReturnで送信する
-      (vterm-send-string text t)
-      (vterm-send-return))
+    (pcase target
+      (`(:tmux . ,session)
+       (unless (my/ai-agent--tmux-session-exists-p session)
+         (user-error "tmuxセッション \"%s\" がありません(閉じられた可能性)" session))
+       ;; bracketed paste + Enter で、複数行を1入力として渡してから送信する
+       (my/ai--tmux-send-text session text t))
+      (`(:vterm . ,buffer)
+       (unless (buffer-live-p buffer)
+         (user-error "送信先のAIエージェントバッファがありません"))
+       (with-current-buffer buffer
+         ;; bracketed pasteで複数行も途中送信されず1入力として渡し、最後にReturnで送信する
+         (vterm-send-string text t)
+         (vterm-send-return)))
+      (_ (user-error "送信先が解決できません")))
     (my/ai-agent-compose--close)))
 
 (defun my/ai-agent-compose-abort ()
