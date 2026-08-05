@@ -1025,7 +1025,10 @@ ai-composeバッファへ挿入する(vtermのプロンプトへ直接送るの�
   (defun my/gptel-myllm-refresh-models ()
     "独自APIのモデル一覧を取得し、gptelバックエンド \"MyLLM\" の選択肢へ反映する。
 一覧エンドポイントは環境変数 MY_LLM_MODELS_ENDPOINT から取得する。
-レスポンスはJSON配列で、各要素の id をモデル名として扱う。"
+レスポンスは OpenAI 互換の2形式に対応する。
+  1. 裸のJSON配列        : [{\"id\": …}, …]
+  2. dataラッパー付き     : {\"object\": \"list\", \"data\": [{\"id\": …}, …]}
+各要素の id をモデル名(シンボル)として扱う。"
     (interactive)
     (let* ((host (getenv "MY_LLM_HOST"))
            (key  (getenv "MY_LLM_API_KEY"))
@@ -1039,10 +1042,26 @@ ai-composeバッファへ挿入する(vtermのプロンプトへ直接送るの�
       (with-current-buffer (url-retrieve-synchronously url t t 30)
         (goto-char (point-min))
         (re-search-forward "\r?\n\r?\n") ; HTTPヘッダとボディの境界まで進める
-        (let* ((json   (json-parse-buffer :array-type 'list :object-type 'alist))
-               (models (mapcar (lambda (m) (intern (alist-get 'id m))) json)))
+        (let* ((json (json-parse-buffer :array-type 'list :object-type 'alist))
+               ;; OpenAI標準は {"object":"list","data":[…]} 形式。トップレベルが
+               ;; その形なら data を取り出し、裸の配列ならそのまま使う。
+               (items (or (alist-get 'data json) json))
+               ;; id が無い/文字列でない要素は握りつぶさず除外する
+               ;; (intern に nil が渡ると stringp エラーで一覧が丸ごと落ちるため)。
+               (models (delq nil
+                             (mapcar (lambda (m)
+                                       (let ((id (and (consp m) (alist-get 'id m))))
+                                         (and (stringp id) (intern id))))
+                                     items))))
           (kill-buffer)
-          (setf (gptel-backend-models my/gptel-myllm-backend) models)
+          ;; models スロットへ書き戻す。setf の gv エキスパンダは gptel(struct定義)
+          ;; がロード済みの時にしか展開できず、遅延ロード(:commands)+部分再評価だと
+          ;; \(setf gptel-backend-models\) が void になる。ロード状態に依存しないよう
+          ;; record のスロット位置を実行時に求めて aset で直接書き込む。
+          (require 'cl-lib)
+          (aset my/gptel-myllm-backend
+                (cl-struct-slot-offset 'gptel-backend 'models)
+                models)
           (message "MyLLM: %d 個のモデルを取得しました" (length models))
           models))))
 
