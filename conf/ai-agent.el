@@ -1002,6 +1002,62 @@ ai-composeバッファへ挿入する(vtermのプロンプトへ直接送るの�
   ;; 好みに応じて sonnet などを指定
   (setq gptel-model 'claude-3-5-sonnet-latest)
 
+  ;; Google Gemini も併用登録する。
+  ;; gptel-make-gemini はバックエンドを登録するだけで、デフォルト(Claude)は上書きしない。
+  ;; gptel-menu の Model からいつでも Gemini(flash/pro)へ切り替えられる。
+  ;; APIキーは Claude と分けて GEMINI_API_KEY から取得する(Google AI Studio で発行)。
+  (gptel-make-gemini "Gemini"
+    :key (lambda () (getenv "GEMINI_API_KEY"))
+    :stream t
+    ;; 高速・低コストの flash と高性能の pro の両方を選べるようにしておく
+    :models '(gemini-2.5-flash gemini-2.5-pro))
+
+  ;; 独自のOpenAI互換API(SSE対応)を併用登録する。
+  ;; FQDN・パス・APIキーはすべて環境変数から取得し、git には値を残さない。
+  ;;   MY_LLM_HOST     : FQDNのみ(スキーム https:// は付けない)
+  ;;   MY_LLM_ENDPOINT : チャットのパス
+  ;;   MY_LLM_API_KEY  : Bearerトークン
+  ;;   MY_LLM_MODELS_ENDPOINT : モデル一覧APIのパス
+  ;; モデル名は固定せず、モデル一覧API(下記 refresh コマンド)から動的に取得する。
+  (defvar my/gptel-myllm-backend nil
+    "独自OpenAI互換APIのgptelバックエンド。モデル一覧を後から差し替えるため保持する。")
+
+  (defun my/gptel-myllm-refresh-models ()
+    "独自APIのモデル一覧を取得し、gptelバックエンド \"MyLLM\" の選択肢へ反映する。
+一覧エンドポイントは環境変数 MY_LLM_MODELS_ENDPOINT から取得する。
+レスポンスはJSON配列で、各要素の id をモデル名として扱う。"
+    (interactive)
+    (let* ((host (getenv "MY_LLM_HOST"))
+           (key  (getenv "MY_LLM_API_KEY"))
+           (path (getenv "MY_LLM_MODELS_ENDPOINT"))
+           (url  (format "https://%s%s" host path))
+           (url-request-method "GET")
+           (url-request-extra-headers
+            `(("Authorization" . ,(concat "Bearer " key)))))
+      (unless (and host key path my/gptel-myllm-backend)
+        (user-error "MY_LLM_HOST / MY_LLM_API_KEY / MY_LLM_MODELS_ENDPOINT が未設定か、バックエンド未登録です"))
+      (with-current-buffer (url-retrieve-synchronously url t t 30)
+        (goto-char (point-min))
+        (re-search-forward "\r?\n\r?\n") ; HTTPヘッダとボディの境界まで進める
+        (let* ((json   (json-parse-buffer :array-type 'list :object-type 'alist))
+               (models (mapcar (lambda (m) (intern (alist-get 'id m))) json)))
+          (kill-buffer)
+          (setf (gptel-backend-models my/gptel-myllm-backend) models)
+          (message "MyLLM: %d 個のモデルを取得しました" (length models))
+          models))))
+
+  ;; MY_LLM_HOST が無ければ登録自体をスキップ(未設定マシンでの読込エラー回避)。
+  (when (getenv "MY_LLM_HOST")
+    (setq my/gptel-myllm-backend
+          (gptel-make-openai "MyLLM"                       ; gptel-menu の表示名
+            :host (getenv "MY_LLM_HOST")
+            :endpoint (getenv "MY_LLM_ENDPOINT")
+            :key (lambda () (getenv "MY_LLM_API_KEY"))     ; Authorization: Bearer を自動付与
+            :stream t                                      ; SSE対応
+            :models nil))                                  ; 一覧は下記で動的取得
+    ;; gptel初回ロード時に1回だけモデル一覧を取得。失敗してもgptelの読込は妨げない。
+    (ignore-errors (my/gptel-myllm-refresh-models)))
+
   ;; gptelのバッファをポップアップではなく通常のバッファとして扱いやすくする設定
   (setq gptel-default-mode 'markdown-mode))
 

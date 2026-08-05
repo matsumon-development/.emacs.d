@@ -222,6 +222,13 @@
   :straight t
   :if (memq window-system '(mac ns))
   :config
+  ;; PATH/MANPATH に加え、gptel等が使うAPIキー・接続先もシェルから取り込む。
+  ;; GUI起動のEmacsはシェルの環境変数を継承しないため、明示指定しないと
+  ;; (getenv ...) が nil になり、これらの変数を参照する設定が動かない。
+  (dolist (var '("ANTHROPIC_API_KEY" "GEMINI_API_KEY"
+                 "MY_LLM_HOST" "MY_LLM_ENDPOINT"
+                 "MY_LLM_MODELS_ENDPOINT" "MY_LLM_API_KEY"))
+    (add-to-list 'exec-path-from-shell-variables var))
   (exec-path-from-shell-initialize))
 
 ;; 【native-comp補足】emacs-mac は native-comp(libgccjit)を使う。.eln生成後の
