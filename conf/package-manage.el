@@ -72,10 +72,10 @@
   (doom-modeline-buffer-encoding t)
   (doom-modeline-indent-info t)
   (doom-modeline-lsp t)
-  (doom-modeline-flycheck t)
-  ;; チェッカー(flycheck)の結果を error/warning/info すべて個別に表示する。
-  ;; デフォルト(t)は最重要度の1つの数字にまとめてしまうため nil にする。
-  (doom-modeline-checker-simple-format nil)
+  ;; チェッカー(flycheck/flymake)の結果を error/warning/info すべて個別に表示する。
+  ;; 更新版で checker→check にリネームされ、simple-format 真偽値ではなく
+  ;; auto/full/simple/nil の選択式になった。full が全件個別表示(旧 simple-format nil 相当)。
+  (doom-modeline-check 'full)
   :hook
   (after-init . doom-modeline-mode)
   :after (evil)
@@ -96,7 +96,7 @@
   (doom-modeline-def-modeline
     'main
     '(bar window-number evil-state matches buffer-info remote-host buffer-position  parrot selection-info)
-    '(misc-info persp-name github debug minor-modes input-method buffer-encoding major-mode process vcs checker))
+    '(misc-info persp-name github debug minor-modes input-method buffer-encoding major-mode process vcs check))
   )
 
 
