@@ -126,6 +126,16 @@
 
 (put 'dired-find-alternate-file 'disabled nil) ; dired-find-alternate-file の有効化
 
+(defun my/dired-quit-window ()
+  "Diredバッファを閉じる。ウィンドウが複数開いていれば、そのウィンドウも閉じる。
+1つしかウィンドウが無い場合はバッファを閉じるだけ(唯一のウィンドウは消せないため)。"
+  (interactive)
+  (let ((win (selected-window)))
+    (kill-current-buffer)
+    ;; kill後もそのウィンドウが生きていて、かつフレームに複数ウィンドウがあれば閉じる
+    (when (and (window-live-p win) (not (one-window-p)))
+      (delete-window win))))
+
 ;; GNU ls (coreutils) があれば使う。macOS標準のBSD lsには無い --group-directories-first 等が使える
 (when (executable-find "gls")
   (setq insert-directory-program "gls"))
@@ -177,7 +187,7 @@
 (add-hook 'dired-after-readin-hook #'my/dired-reveal-modification-time)
 
 ;; 削除はFinderと同じくゴミ箱に移動する(誤delete対策)。macOS 14+ 標準の`trash`コマンドを利用
-(setq delete-by-moving-files-to-trash t)
+(setq delete-by-moving-to-trash t)
 (when (and (eq system-type 'darwin) (executable-find "trash"))
   (defun system-move-file-to-trash (file)
     "macOS標準の`trash`コマンドでFILEをゴミ箱に移動する。"

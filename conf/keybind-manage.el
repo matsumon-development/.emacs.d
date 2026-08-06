@@ -9,7 +9,7 @@
 ;;; Code:
 
 ;;ファイル操作系
-;; アイコン付き補完(all-the-icons-ivy-rich)は counsel 系コマンドにのみ表示変換を
+;; アイコン付き補完(nerd-icons-ivy-rich)は counsel 系コマンドにのみ表示変換を
 ;; 登録するため、素の find-file ではアイコンが出ない。counsel-find-file を使う。
 (bind-key "SPC f f" 'counsel-find-file evil-normal-state-map)
 (bind-key "SPC f s" 'save-buffer evil-normal-state-map)
@@ -37,7 +37,7 @@
   (bind-key "C-b" 'switch-to-buffer dired-mode-map)
   (bind-key "RET" 'dired-find-alternate-file dired-mode-map)
   (bind-key "a"   'dired-find-file dired-mode-map)
-  (bind-key "q"   'kill-current-buffer dired-mode-map)
+  (bind-key "q"   'my/dired-quit-window dired-mode-map)
   (bind-key "i"   'dired-subtree-insert dired-mode-map)
   (bind-key "I"   'dired-subtree-remove dired-mode-map)
   ;; Finder/rangerのように、h=親ディレクトリへ、l=開く、で1ペインのまま素早く移動する

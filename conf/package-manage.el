@@ -200,12 +200,7 @@
   :defer t
   )
 
-;;アイコンの追加
-(use-package all-the-icons-ivy
-  :straight t
-  :if (display-graphic-p)
-  :init (add-hook 'after-init-hook 'all-the-icons-ivy-setup))
-
+;;アイコンの追加(nerd-icons系に統一)
 (use-package ivy-rich
   :straight t
   :if       (display-graphic-p)
@@ -216,23 +211,25 @@
   (ivy-virtual-abbreviate 'full)
   :config (setcdr (assq t ivy-format-functions-alist) #'ivy-format-function-line))
 
-(use-package all-the-icons-ivy-rich
+;; ivy/counsel の候補にアイコンを付ける。all-the-icons-ivy(-rich)の後継で、
+;; counsel系コマンドへの表示変換と ivy-rich 連携を1パッケージで担う。
+(use-package nerd-icons-ivy-rich
   :straight t
   :if       (display-graphic-p)
-  :init     (all-the-icons-ivy-rich-mode 1)
-  :custom
-  (all-the-icons-ivy-rich-icon-size 1.0)
-  (inhibit-compacting-font-caches t))
+  :init     (nerd-icons-ivy-rich-mode 1)
+  :custom   (inhibit-compacting-font-caches t))
 
-(use-package all-the-icons
-  :straight (all-the-icons :type git :host github :repo "domtronn/all-the-icons.el")
-  :if       (display-graphic-p)
-  :custom   (all-the-icons-scale-factor 1.0))
-
-(use-package all-the-icons-dired
+;; アイコンの共通ライブラリ本体(all-the-icons の後継)。他のnerd-icons-*が依存する。
+(use-package nerd-icons
   :straight t
   :if       (display-graphic-p)
-  :hook     (dired-mode . all-the-icons-dired-mode))
+  :custom   (nerd-icons-scale-factor 1.0))
+
+;; Diredの各行にファイル種別アイコンを付ける。nerd-icons-diredは既定でカラー表示。
+(use-package nerd-icons-dired
+  :straight t
+  :if       (display-graphic-p)
+  :hook     (dired-mode . nerd-icons-dired-mode))
 
 
 ;;色コードを記入した文字のバックグラウンド色をその色にする
@@ -308,7 +305,9 @@ The description of ARG is in `neo-buffer--execute'."
   :custom
   (neo-smart-open t)
   (neo-create-file-auto-open t)
-  (neo-theme (if (display-graphic-p) 'icons 'arrow))
+  ;; 'iconsテーマはall-the-icons必須。nerd-icons統一に伴い all-the-icons を廃止したため、
+  ;; 依存の無い 'arrow(unicode矢印)にする。ツリー内のファイル種別アイコンは付かない。
+  (neo-theme 'arrow)
   :config
   (add-hook 'neo-after-create-hook (lambda (_) (call-interactively 'neotree-text-scale))))
 
