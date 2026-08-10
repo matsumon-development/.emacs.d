@@ -48,6 +48,7 @@ load順が重要になる場合がある(例: keybind-manage.el は package-mana
 |  4 | Go                                 | Go言語の編集・gofmt(goimports)・gopls(言語サーバ)に必要                |
 |  5 | CMake / libtool / Cコンパイラ      | vterm(ネイティブモジュール)のビルドに必要。macOSはXcode Command Line Toolsで揃う |
 |  6 | [[https://docs.claude.com/claude-code][Claude Code CLI]] (`claude`コマンド) | package-manage.el のvterm/gptel連携から呼び出す                        |
+|  7 | [[https://github.com/chrishrb/go-grip][go-grip]]                            | Markdownプレビュー(grip-mode)のレンダラ。language.el から呼び出す。未導入だと ~SPC m p~ が "The `go-grip' is not available in PATH environment" で失敗する |
 
 
 *** macOSのEmacsビルド (emacs-mac)
@@ -81,6 +82,19 @@ rm -rf ~/.emacs.d/straight/build ~/.emacs.d/eln-cache
 
 - 環境変数HOMEに `~` の定義
 - 環境変数ANTHROPIC_API_KEY(gptelのAnthropicバックエンドで使用)
+- Markdownプレビュー(grip-mode)用に *go-grip* を PATH の通った場所へ置く。straightの管理外なので、lockfileから復元しても入らない点に注意。Goツールチェーンは不要で、配布バイナリを展開するだけでよい
+
+  #+begin_src sh
+  VER=v0.9.2
+  curl -fsSL -o /tmp/go-grip.tar.gz \
+    "https://github.com/chrishrb/go-grip/releases/download/$VER/go-grip-$VER-darwin-arm64.tar.gz"
+  tar xzf /tmp/go-grip.tar.gz -C /tmp
+  install -m 755 /tmp/go-grip /opt/homebrew/bin/go-grip
+  # Apple Siliconでは未署名バイナリが起動を拒否されるためad-hoc署名を付ける
+  codesign -s - -f /opt/homebrew/bin/go-grip
+  #+end_src
+
+  素の ~grip~ (Python版)でも grip-mode は動くが、レンダリングをGitHub APIに投げるため書きかけの本文が外部送信され、レート制限(60回/時)もかかる。go-gripは完全ローカルで動き、mermaid・数式・シンタックスハイライトのJS/CSSを同梱するのでオフラインでも崩れない。~grip-command~ で go-grip を明示指定している(language.el)。
 - (macOS・任意) GNU coreutils の `gls` を入れておくとDiredの表示が改善する(`--group-directories-first`等)。未導入でも標準のlsで動作する
 - (macOS・任意) `trash` コマンドを入れておくと削除がゴミ箱に移動する(未導入時はEmacs標準の削除挙動になる)
 - (macOS注意) emacs-mac(Mac port)は press-and-hold(押し続けるとアクセント記号選択ポップアップが出る機能)を *デフォルトで無効化* する実装になっている([[https://github.com/railwaycat/homebrew-emacsmacport][NEWS-mac]] 参照、~ApplePressAndHoldEnabled~ を明示的に ~YES~ にしない限りoff)。そのため vanilla Cocoa Emacs や emacs-plus 向けの定番Tips(~defaults write org.gnu.Emacs ApplePressAndHoldEnabled -bool false~)は emacs-mac では基本不要(設定しても無害だが効果はない)。
@@ -365,3 +379,4 @@ ditto /opt/homebrew/opt/emacs-mac@29/Emacs.app          /Applications/Emacs-mac2
 - lockfile を更新したいとき（新しいパッケージを追加した/意図的に最新化したいとき）は、Emacs上で ~M-x straight-freeze-versions~ を実行してから差分をコミットする
 - straight関連のエラーで詰まったときは、まず ~M-x straight-thaw-versions~ でlockfile通りの状態に戻せるか試す
 - 「ローカルのgit remoteとレシピのURLが食い違う」旨のエラーが出た場合、該当パッケージが上流でリポジトリ移動した可能性が高い。~straight/repos/<package>~ と ~straight/build/<package>~ を削除して再起動すれば再取得される
+- lockfileで復元できるのはEmacsパッケージだけで、*外部コマンドは別途インストールが必要*。上記「前提 > 必要なもの」の表を参照(go-grip、Node.js、Go など)
