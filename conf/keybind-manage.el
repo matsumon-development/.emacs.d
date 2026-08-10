@@ -99,8 +99,9 @@
        (bind-key "C-; f" 'find-file-other-tab global-map)))
 
 
-;; ウィンドウのテーマのサイクル
+;; ウィンドウのテーマのサイクル (c = cycle)
 (bind-key "SPC t c" 'theme-cycle evil-normal-state-map)
+(which-key-add-key-based-replacements "SPC t c" "cycle-theme")
 
 ;; ウィンドウの透過の切り替え
 (which-key-add-key-based-replacements "SPC t t" "transparency-config")
@@ -118,8 +119,11 @@
 (which-key-add-key-based-replacements "SPC t t ESC" "set-transparency-level")
 
 
-;;rainbow-modeの切り替え
-(bind-key "SPC t c" 'rainbow-mode evil-normal-state-map)
+;;rainbow-modeの切り替え (r = rainbow)
+;; 以前は SPC t c で、上の theme-cycle と衝突していた。bind-keyは後勝ちなので
+;; theme-cycle が呼べなくなっていたため、こちらを SPC t r へ移動した。
+(bind-key "SPC t r" 'rainbow-mode evil-normal-state-map)
+(which-key-add-key-based-replacements "SPC t r" "toggle-rainbow-mode")
 
 ;;行の折り返しON/OFF
 (bind-key "SPC t x t" 'toggle-truncate-lines evil-normal-state-map)
