@@ -4,6 +4,7 @@ elpa_backup/
 eln-cache/
 server/
 transient/
+org-persist/
 amx-items
 network-security.data
 recentf
