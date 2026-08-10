@@ -211,6 +211,18 @@
                       (error-message-string "Fail to get path name."))))))
 
 ;;-----------------------------------------------------------
+;; Markdown / Org プレビュー (grip-mode)
+;; パッケージ設定は conf/language.el 側。ここではキーバインドのみ。
+;;-----------------------------------------------------------
+;; SPC m p: プレビューのトグル。grip-modeはマイナーモードなので、
+;; もう一度押すとプレビュー用プロセスとバッファごと止まる。
+;; markdown/org 以外のバッファでは意味がないが、evilのSPC系は
+;; evil-normal-state-mapに集約する方針なのでグローバルに置く。
+(which-key-add-key-based-replacements "SPC m" "markdown/org")
+(bind-key "SPC m p" 'grip-mode evil-normal-state-map)
+(which-key-add-key-based-replacements "SPC m p" "toggle-preview")
+
+;;-----------------------------------------------------------
 ;; vterm
 ;;-----------------------------------------------------------
 ;; 現在のファイルバッファのディレクトリで、通常のターミナルを開く（定義はconf/package-manage.el）

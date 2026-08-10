@@ -30,18 +30,104 @@
   :defer    t
   :custom
   (markdown-fontify-code-blocks-natively t) ;;コードブロックのハイライト
-  (markdown-command "~/AppData/Local/Pandoc/pandoc.exe -s --self-contained -t html5 -c http://thomasf.github.io/solarized-css/solarized-light.min.css")
+  ;; markdown-command(C-c C-c v 等が使う変換コマンド)は既定の "markdown" のまま。
+  ;; 以前はWindows時代のpandoc.exeを絶対パス指定していたが、macOSでは存在せず
+  ;; 常に失敗していたため削除した。プレビューは下の grip-mode に任せる。
   :mode
   ("\\.markdown\\'" . markdown-mode)
   ("\\.md\\'" . gfm-mode)
   )
-(use-package markdown-preview-mode
-  :straight (markdown-preview-mode :type git :host github :repo "ancane/markdown-preview-mode")
+
+;; GFM(GitHub風)プレビュー。旧 markdown-preview-mode から乗り換え。
+;; 旧設定は upstream が2022年で更新停止しているうえ、CSS/JSをCDNから http:// で
+;; 読んでいたためオフラインでは崩れ、mixed contentでブロックもされ得た。
+(use-package grip-mode
+  :straight t
   :defer    t
   :custom
-  (markdown-preview-stylesheets (list "http://thomasf.github.io/solarized-css/solarized-light.min.css"))
-  (markdown-preview-javascript (list "http://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.6.0/highlight.min.js"))
-  (markdown-preview-script-onupdate "hljs.highlightAll();")
+  ;; バックエンドは go-grip を明示指定する('auto だと環境次第で素のgripを掴む)。
+  ;; 素のgrip(Python)はレンダリングをGitHub APIに投げるので、書きかけの文章が
+  ;; 外部送信されるうえレート制限(60回/時)もかかる。go-gripは完全ローカルで動き、
+  ;; mermaid・数式(MathJax)・シンタックスハイライトのJS/CSSを自前で同梱するため
+  ;; オフラインでもそのまま描画できる。
+  (grip-command 'go-grip)
+  ;; このEmacsは XWIDGETS 付きでビルドされているので、外部ブラウザではなく
+  ;; Emacs内のwebkitバッファにプレビューを出す。
+  ;; xwidget無しのビルドに移ったらnilにする(既定のブラウザで開くようになる)。
+  (grip-preview-in-webkit t)
+  ;; 保存しなくても編集内容を反映させる。go-gripはローカル処理で軽いので有効化して問題ない。
+  (grip-real-time-refresh t)
+  :config
+  ;; プレビューは編集中のウィンドウを分割せず、独立したフレームに出す。
+  ;; 別モニタへ移したり、透過させた編集フレームの背後に置いたりしたいので、
+  ;; 同一フレーム内の分割ではなくフレームを分ける必要がある。
+  ;;
+  ;; display-buffer-alist をバッファ名で引っ掛ける方法は使えない。
+  ;; xwidgetのセッションバッファは xwidget-webkit--create-new-session-buffer で
+  ;; 一旦「元バッファ名」(例 memo.md<2>)で作られ、*xwidget-webkit: …* への改名は
+  ;; ページ読込後の xwidget-webkit-callback まで起きないため、表示を決める
+  ;; pop-to-buffer の時点ではまだ目的の名前になっていない。
+  ;; そこで grip--browse-url の呼び出し全体を包み、その間だけ表示先を強制する。
+  ;; display-buffer-overriding-action は display-buffer-alist より優先される。
+  (defun my/grip-preview-in-own-frame (fn url)
+    "gripのプレビュー(FN URL)を専用フレームに表示する。"
+    (let ((display-buffer-overriding-action
+           '((display-buffer-reuse-window display-buffer-pop-up-frame)
+             ;; 新フレームを作ってもフォーカスと選択フレームは編集側に残す。
+             ;; 書きながら背後でプレビューが更新される状態にしたいため。
+             (inhibit-switch-frame . t)
+             ;; 編集フレーム側のウィンドウを再利用させない(分割に戻ってしまうため)。
+             (inhibit-same-window . t)
+             ;; ウィンドウをバッファ専用にしておくと、grip-mode をoffにして
+             ;; xwidgetバッファがkillされたときにフレームごと片付く。
+             (dedicated . t)
+             (reusable-frames . visible)
+             (pop-up-frame-parameters
+              . ((name . "grip preview")
+                 (width . 100)
+                 (height . 48)
+                 ;; 生成時にフォーカスを奪わせない
+                 (no-focus-on-map . t))))))
+      (funcall fn url)))
+  (advice-add 'grip--browse-url :around #'my/grip-preview-in-own-frame)
+
+  ;; プレビューの地色を白系(light)に固定する。
+  ;; go-grip v0.9.2 にテーマ指定のCLIフラグは無く、grip-theme も mdopen 専用なので
+  ;; Emacs側からは指定できない。配色は github-markdown-{light,dark}.css を
+  ;; prefers-color-scheme のメディアクエリで出し分ける作りで、地色は
+  ;; light=#ffffff / dark=#0d1117。xwidgetのWebKitが暗いと判定すると暗くなる。
+  ;; ただし theme-switch.js は localStorage の "go-grip-theme" を
+  ;; prefers-color-scheme より優先するので、そこへ light を書き込んで上書きする。
+  (defconst my/grip--force-light-js
+    (concat
+     "(function(){"
+     "var l=document.getElementById('theme-light'),"
+     "d=document.getElementById('theme-dark'),"
+     "lh=document.getElementById('highlight-light'),"
+     "dh=document.getElementById('highlight-dark');"
+     ;; go-grip以外のページでは該当要素が無いので、何もせず抜ける
+     "if(!l||!d){return;}"
+     "try{localStorage.setItem('go-grip-theme','light');}catch(e){}"
+     "l.media='all';d.media='not all';"
+     "if(lh){lh.media='all';}if(dh){dh.media='not all';}"
+     "document.body.setAttribute('data-theme','light');"
+     ;; トグルボタンの表示も light 側に合わせておく
+     "var b=document.getElementById('theme-toggle');"
+     "if(b){var i=b.querySelector('.theme-toggle-icon');"
+     "if(i){i.textContent='\\u2600';}b.title='Theme: Light';}"
+     "})();")
+    "go-gripのプレビューを強制的にlightテーマにするJavaScript。")
+
+  (defun my/grip--force-light-theme (xwidget &rest _)
+    "XWIDGET の読込完了時に、gripのプレビューをlightテーマへ固定する。"
+    ;; ページ読込が完了してからでないとDOMが無いので、load-finished のみ対象にする。
+    (when (and (listp last-input-event)
+               (equal (nth 3 last-input-event) "load-finished")
+               ;; grip のプレビュー(ローカルサーバ)以外は触らない
+               (string-prefix-p (format "http://%s:" grip-preview-host)
+                                (or (xwidget-webkit-uri xwidget) "")))
+      (xwidget-webkit-execute-script xwidget my/grip--force-light-js)))
+  (advice-add 'xwidget-webkit-callback :after #'my/grip--force-light-theme)
   )
 
 ;;----------------------------------------------------------------------------------------------------
