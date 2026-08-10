@@ -67,6 +67,10 @@
   (doom-modeline-icon t)
   (doom-modeline-major-mode-icon t)
   (doom-modeline-major-mode-color-icon t)
+  ;; evil等のステートをモードラインに表示(modalsセグメントで使用)
+  (doom-modeline-modal t)             ; ステート表示を有効化
+  (doom-modeline-modal-icon t)        ; テキストではなくアイコンで表示
+  (doom-modeline-modal-modern-icon t) ; 色付きの丸バッジ風(モダン表示)
   (doom-modeline-minor-modes nil)
   (doom-modeline-enable-word-count t)
   (doom-modeline-buffer-encoding t)
@@ -83,19 +87,12 @@
   (line-number-mode t)
   (column-number-mode t)
   (display-time-mode t)
-  (doom-modeline-def-segment evil-state
-    "The current evil state.  Requires `evil-mode' to be enabled."
-    (when (bound-and-true-p evil-local-mode)
-      (s-trim-right (evil-state-property evil-state :tag t))))
-  (setq evil-normal-state-tag   (propertize "[N]" 'face '((:background "DodgerBlue2" :foreground "white"))))
-  (setq evil-emacs-state-tag    (propertize "[E]" 'face '((:background "MediumOrchid1" :foreground "white"))))
-  (setq evil-insert-state-tag   (propertize "[I]" 'face '((:background "ForestGreen") :foreground "white")))
-  (setq evil-visual-state-tag   (propertize "[V]" 'face '((:background "LightSteelBlue4" :foreground "white"))))
-  (setq evil-motion-state-tag   (propertize "[M]" 'doom-modeline-evil-motion-state '((:background "blue") :foreground "white")))
-  (setq evil-operator-state-tag (propertize "[O]" 'doom-modeline-evil-operator-state '((:background "purple") :foreground "white")))
+  ;; evilのステート表示は doom-modeline 標準の modals セグメントを使う。
+  ;; doom-modeline-modal-modern-icon(既定t)により、状態が色付きの丸バッジ
+  ;; (normal=緑の N など)で表示される。旧・自作の evil-state タグは廃止した。
   (doom-modeline-def-modeline
     'main
-    '(bar window-number evil-state matches buffer-info remote-host buffer-position  parrot selection-info)
+    '(bar window-number modals matches buffer-info remote-host buffer-position  parrot selection-info)
     '(misc-info persp-name github debug minor-modes input-method buffer-encoding major-mode process vcs check))
   )
 
