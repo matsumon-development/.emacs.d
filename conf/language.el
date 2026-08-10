@@ -142,10 +142,97 @@
 
 
 ;;            csv
+;; CSVを「表」として読むための設定。
+(defvar-local my/csv--hidden-header-overlay nil
+  "見出し行(本文1行目)を隠すためのオーバーレイ。")
+
+(defun my/csv--sync-hidden-header-row (&rest _)
+  "ヘッダー行の有効/無効に合わせて、本文1行目の表示を切り替える。
+`csv-header-line' は1行目を複製してヘッダー行に出すだけで本文の1行目は
+そのまま残るため、何もしないとファイル先頭で同じ行が二重に見える。
+そこでヘッダー行が有効な間だけ、本文側の1行目をオーバーレイで隠す。
+隠すとヘッダー文字列の計算が1行ずれるので、その回避は
+`my/csv--header-string-ignore-hidden-row' が担当する。"
+  (cond
+   ((and header-line-format (not my/csv--hidden-header-overlay))
+    ;; csv-align-mode が buffer-invisibility-spec をリスト化するので、
+    ;; 素の t に頼らず専用シンボルを登録して確実に隠す。
+    (add-to-invisibility-spec 'my/csv-header-row)
+    (save-excursion
+      (goto-char (point-min))
+      (setq my/csv--hidden-header-overlay
+            ;; 改行まで含めないと、隠したあとに空行が残る。
+            (make-overlay (point-min) (min (point-max) (1+ (line-end-position)))))
+      (overlay-put my/csv--hidden-header-overlay 'invisible 'my/csv-header-row)))
+   ((and (not header-line-format) my/csv--hidden-header-overlay)
+    (delete-overlay my/csv--hidden-header-overlay)
+    (setq my/csv--hidden-header-overlay nil))))
+
+(defun my/csv--header-string-ignore-hidden-row (fn &rest args)
+  "ヘッダー文字列の計算中だけ1行目の隠蔽を解いて FN を ARGS で呼ぶ。
+`csv--compute-header-string' は `move-to-column' で横スクロール位置に
+合わせるが、move-to-column は不可視テキストを飛び越して進むため、
+1行目を隠したままだと2行目を読んでしまい、見出しが1行ずれる。
+`csv-align-mode' が使う csv-truncate は残す必要があるので、
+`buffer-invisibility-spec' 全体ではなく自前のシンボルだけ取り除く。"
+  (let ((buffer-invisibility-spec
+         (remq 'my/csv-header-row buffer-invisibility-spec)))
+    (apply fn args)))
+
+;; 処理の順番に意味があるので、:hook を並べず1つの関数にまとめる
+;; (use-packageの:hookはadd-hookで先頭に積まれるため、書いた順と実行順が逆になる)。
+(defun my/csv-view-setup ()
+  "CSV/TSVバッファを表として読みやすくする。"
+  ;; 桁揃えの前に区切り文字を確定させる。中身から推測するので
+  ;; カンマ以外(TAB・セミコロン)のファイルもそのまま開ける。
+  (csv-guess-set-separator)
+  ;; 折り返すと行と列の対応が崩れて表に見えなくなるので、はみ出した分は切る。
+  (setq-local truncate-lines t)
+  ;; 1行目を見出しとしてヘッダー行に固定する。スクロールしても列名が見える。
+  ;; csv-header-line はトグルなので、二重に呼んで解除しないよう確認する。
+  ;; 本文側1行目の隠蔽は csv-header-line への advice が引き受ける。
+  (unless header-line-format
+    (csv-header-line))
+  ;; 列の桁揃え。バッファの中身は書き換えず表示だけ変える方式で、
+  ;; jit-lockにより画面に見えている範囲だけ処理するため大きなファイルでも重くない。
+  (csv-align-mode 1))
+
 (use-package csv-mode
   :straight t
   :defer    t
-  :mode     (("\\.csv\\'" . csv-mode)))
+  :mode     (("\\.csv\\'" . csv-mode)
+             ("\\.tsv\\'" . tsv-mode))
+  :custom
+  ;; 文字列は左寄せ・数値は右寄せ。数字の桁が縦に揃って比較しやすくなる。
+  (csv-align-style 'auto)
+  ;; 1列が極端に長いと後続の列が画面外へ押し出されるので上限を設ける。
+  (csv-align-max-width 60)
+  :hook
+  ((csv-mode . my/csv-view-setup))
+  :config
+  ;; M-x csv-header-line で手動トグルしたときも隠蔽が追従するよう、
+  ;; setup 側で呼ぶのではなく csv-header-line 自体に足しておく。
+  (advice-add 'csv-header-line :after #'my/csv--sync-hidden-header-row)
+  (advice-add 'csv--compute-header-string :around
+              #'my/csv--header-string-ignore-hidden-row))
+
+;; 列ごとに文字色を変えて、隣の列との境目を見分けやすくする。
+;; MELPAには無いのでGitHubから直接取得する。
+(defun my/rainbow-csv-maybe-enable ()
+  "CSVでのみ rainbow-csv を有効にする。
+tsv-mode では有効にしない。TSVは引用符を使わない仕様のため
+tsv-mode が `csv-field-quotes' を nil にするが、rainbow-csv は
+その中身を正規表現の文字クラスへそのまま埋める実装になっており、
+空だと \"[]\" という不正な正規表現になって invalid-regexp で落ちるため。"
+  (when csv-field-quotes
+    (rainbow-csv-mode 1)))
+
+(use-package rainbow-csv
+  :straight (rainbow-csv :type git :host github :repo "emacs-vs/rainbow-csv")
+  :defer    t
+  ;; tsv-mode は csv-mode から派生していて csv-mode-hook も走るので、
+  ;; フックは csv-mode 側に付けたうえで上の関数で選り分ける。
+  :hook     ((csv-mode . my/rainbow-csv-maybe-enable)))
 
 
 (use-package ttl-mode

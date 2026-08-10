@@ -71,6 +71,7 @@
  ("posframe" . "dace2dcf105e9685b4085836645b3392dc7e2211")
  ("powershell.el" . "f2da15857e430206e215a3c65289b4058ae3c976")
  ("prescient.el" . "5649977fa7789e4615efeca09397ed7eccd06dfc")
+ ("rainbow-csv" . "5763375e48e870ffd284e051eb2428cac743d7e0")
  ("rainbow-delimiters" . "a32b39bdfe6c61c322c37226d66e1b6d4f107ed0")
  ("rainbow-mode" . "8e96388fb4d616a9dde23e712bad0d9cd048fbf0")
  ("rust-mode" . "93778358b6af8ad9e123a41bc2c8c91877a9ffd5")
