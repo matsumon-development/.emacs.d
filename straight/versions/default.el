@@ -23,8 +23,6 @@
  ("emacs-hide-mode-line" . "bc5d293576c5e08c29e694078b96a5ed85631942")
  ("emacs-libvterm" . "9495966d9124ac32c307aee5c0aeb4a06be37519")
  ("emacs-scala-mode" . "5d7cf21c37e345c49f921fe5111a49fd54efd1e0")
- ("emacs-web-server" . "6357a1c2d1718778503f7ee0909585094117525b")
- ("emacs-websocket" . "1a08093b122d8cf20366a1cba5faddf7a53d08ed")
  ("emacs-which-key" . "8093644032854b1cdf3245ce4e3c7b6673f741bf")
  ("emacsmirror-mirror" . "22ac279cdbf773c2c1ae7acd817581c6a6ab6e3b")
  ("epl" . "78ab7a85c08222cd15582a298a364774e3282ce6")
