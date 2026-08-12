@@ -42,7 +42,9 @@
   :custom-face
   (doom-modeline-bar ((t (:background "#6272a4"))))   ;;一番左の色
   :config
-  (doom-themes-neotree-config)
+  ;; doom-themes-neotree-config / doom-themes-treemacs-config は呼ばない。
+  ;; どちらも all-the-icons 前提の拡張を読み込むため、nerd-icons統一の方針と合わない。
+  ;; ファイルツリーのアイコンは treemacs-nerd-icons が担当する(下記)。
   (doom-themes-org-config)
   (setq my-themes '(doom-dracula doom-wilmersdorf  doom-solarized-light))
   (setq curr-theme my-themes)
@@ -99,11 +101,11 @@
 
 
 
-;;imenuとneotreeのモードラインを非表示にする
+;;imenuとtreemacsのモードラインを非表示にする
 (use-package hide-mode-line
   :straight t
   :hook
-  ((treemacs-mode neotree-mode imenu-list-minor-mode ) . hide-mode-line-mode))
+  ((treemacs-mode imenu-list-minor-mode ) . hide-mode-line-mode))
 
 
 
@@ -266,55 +268,16 @@
 
 
 
-(use-package neotree
-  :straight t
-  :init (setq-default neo-keymap-style 'concise)
-  :preface
-  ;; Change neotree's font size
-  ;; Tips from https://github.com/jaypei/emacs-neotree/issues/218
-  (defun neotree-text-scale ()
-    "Text scale for neotree."
-    (interactive)
-    (text-scale-adjust 0)
-    (text-scale-decrease 1)
-    (message nil))
-  ;; neotree enter hide
-  ;; Tips from https://github.com/jaypei/emacs-neotree/issues/77
-  (defun neo-open-file-hide (full-path &optional arg)
-    "Open file and hiding neotree.
-The description of FULL-PATH & ARG is in `neotree-enter'."
-    (neo-global--select-mru-window arg)
-    (find-file full-path)
-    (neotree-hide))
-  (defun neotree-enter-hide (&optional arg)
-    "Neo-open-file-hide if file, Neo-open-dir if dir.
-The description of ARG is in `neo-buffer--execute'."
-    (interactive "P")
-    (neo-buffer--execute arg 'neo-open-file-hide 'neo-open-dir))
-  :bind
-  (:map evil-normal-state-map ("SPC f t" . neotree-toggle))
-  (:map dired-mode-map ("C-f t" . neotree-toggle))
-  (:map neotree-mode-map
-        ("RET" . 'neotree-enter-hide)
-        ("a" . neotree-hidden-file-toggle)
-        ("<left>" . neotree-select-up-node)
-        ("<right>" . neotree-change-root))
-  :custom
-  (neo-smart-open t)
-  (neo-create-file-auto-open t)
-  ;; 'iconsテーマはall-the-icons必須。nerd-icons統一に伴い all-the-icons を廃止したため、
-  ;; 依存の無い 'arrow(unicode矢印)にする。ツリー内のファイル種別アイコンは付かない。
-  (neo-theme 'arrow)
-  :config
-  (add-hook 'neo-after-create-hook (lambda (_) (call-interactively 'neotree-text-scale))))
-
-
+;; ファイルツリー。以前は neotree と併用していたが、neotree は上流が1年以上
+;; 無更新で、'iconsテーマが all-the-icons 必須のため nerd-icons統一とも噛み合わない。
+;; treemacs 側に一本化した(キーバインドは keybind-manage.el)。
 (use-package treemacs
   :straight t
   :defer t
-  :init
-  (with-eval-after-load 'winum
-    (define-key winum-keymap (kbd "M-0") #'treemacs-select-window))
+  ;; treemacs-delete-other-windows だけ上流に autoload cookie が無い。
+  ;; 以前は use-package の :bind が暗黙に autoload を張っていたが、キーバインドを
+  ;; keybind-manage.el へ移したので、ここで明示的に遅延ロード対象として登録する。
+  :commands (treemacs-delete-other-windows)
   :config
   (progn
     (setq treemacs-collapse-dirs                   (if treemacs-python-executable 3 0)
@@ -388,18 +351,18 @@ The description of ARG is in `neo-buffer--execute'."
        (treemacs-git-mode 'simple)))
 
     (treemacs-hide-gitignored-files-mode nil))
-  :bind
-  (nil :map global-map
-       ("M-0"       . treemacs-select-window)
-       ("C-x t 1"   . treemacs-delete-other-windows)
-       ("C-x t t"   . treemacs)
-       ("C-x t d"   . treemacs-select-directory)
-       ("C-x t B"   . treemacs-bookmark)
-       ("C-x t C-t" . treemacs-find-file)
-       ("C-x t M-t" . treemacs-find-tag))
   :hook
   (treemacs-mode . (lambda () (text-scale-adjust -1)) )
   )
+
+;; ツリーにファイル種別アイコンを付ける。treemacs標準はPNG画像のテーマだが、
+;; 他(Dired・ivy)をnerd-iconsで揃えているので見た目を合わせる。
+(use-package treemacs-nerd-icons
+  :straight (treemacs-nerd-icons :type git :host github :repo "rainstormstudio/treemacs-nerd-icons")
+  :if       (display-graphic-p)
+  :after    (treemacs nerd-icons)
+  :config
+  (treemacs-load-theme "nerd-icons"))
 
 
 

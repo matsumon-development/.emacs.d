@@ -215,6 +215,26 @@
                       (error-message-string "Fail to get path name."))))))
 
 ;;-----------------------------------------------------------
+;; ファイルツリー (treemacs)
+;; パッケージ設定は conf/package-manage.el 側。ここではキーバインドのみ。
+;;-----------------------------------------------------------
+;; SPC f t: ツリーの表示/非表示。neotree から treemacs へ一本化した際、
+;; 以前と同じ打鍵で使えるようキーは据え置いた。
+(bind-key "SPC f t" 'treemacs evil-normal-state-map)
+(which-key-add-key-based-replacements "SPC f t" "toggle-file-tree")
+;; diredからも同じ感覚で開けるようにする(dired-mode-mapはemacs-state固定なので素で効く)
+(with-eval-after-load 'dired
+  (bind-key "C-f t" 'treemacs dired-mode-map))
+;; treemacs付属の C-x t 系。use-packageの:bindから移設した(キーはここへ集約する方針)。
+(bind-key "M-0"       'treemacs-select-window       global-map)
+(bind-key "C-x t 1"   'treemacs-delete-other-windows global-map)
+(bind-key "C-x t t"   'treemacs                      global-map)
+(bind-key "C-x t d"   'treemacs-select-directory     global-map)
+(bind-key "C-x t B"   'treemacs-bookmark             global-map)
+(bind-key "C-x t C-t" 'treemacs-find-file            global-map)
+(bind-key "C-x t M-t" 'treemacs-find-tag             global-map)
+
+;;-----------------------------------------------------------
 ;; Markdown / Org プレビュー (grip-mode)
 ;; パッケージ設定は conf/language.el 側。ここではキーバインドのみ。
 ;;-----------------------------------------------------------
