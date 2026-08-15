@@ -291,6 +291,7 @@
 ;; 各AIエージェントのバッファ内キーバインド。
 ;;   q        … ウィンドウを閉じる(バッファ・プロセスは残す)
 ;;   C-c C-g … 入力欄をクリア(ESC送信)
+;;   C-h      … カーソル前の1文字を削除(backspace)
 ;;   C-c C-w … 別フレームから元のフレームの分割ウィンドウへ戻す
 ;;             (別フレーム側のバッファでそのまま押せるよう normal/insert 両方に束縛)
 ;; ai-agent.el の my/ai-agents レジストリに登録された全モードマップへ一括束縛するので、
@@ -300,6 +301,10 @@
     (let ((mode-map (symbol-value (plist-get (cdr agent) :mode-map))))
       (evil-define-key 'normal mode-map "q" #'my/ai-tool-quit-window)
       (evil-define-key 'insert mode-map (kbd "C-c C-g") #'vterm-send-escape)
+      ;; エージェントのバッファはinsert-stateなので、vterm-mode-map側の束縛は
+      ;; evil-collectionのinsert-state束縛に負けることがある。
+      ;; エージェント固有のマイナーモードマップへ束縛して確実に上書きする。
+      (evil-define-key 'insert mode-map (kbd "C-h") #'vterm-send-backspace)
       (evil-define-key 'normal mode-map (kbd "C-c C-w") #'my/ai-agent-back-to-window)
       (evil-define-key 'insert mode-map (kbd "C-c C-w") #'my/ai-agent-back-to-window))))
 
@@ -390,4 +395,11 @@
 
   (define-key vterm-mode-map (kbd "S-<return>") #'my/vterm-send-newline)
   (define-key vterm-mode-map [return] #'my/vterm-submit-and-shrink)
-  (define-key vterm-mode-map (kbd "RET") #'my/vterm-submit-and-shrink))
+  (define-key vterm-mode-map (kbd "RET") #'my/vterm-submit-and-shrink)
+
+  ;; C-hでカーソル前の1文字を削除(backspace)する。vterm-send-backspaceは
+  ;; 端末のBackspace(ASCII DEL)を送るので、シェルでもTUIでも後方削除になる。
+  ;; C-dは端末側の意味(前方削除/EOF)のまま素通しさせる。
+  ;; プレーン端末はemacs-stateなので、この素のvterm-mode-map束縛で効く
+  ;; (C-hのhelpプレフィックスもvterm内でのみ上書きされる)。
+  (define-key vterm-mode-map (kbd "C-h") #'vterm-send-backspace))
