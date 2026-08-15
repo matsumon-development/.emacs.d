@@ -627,7 +627,13 @@
   :straight t
   :after (evil magit)
   :config
-  (evil-collection-init '(magit vterm)))
+  (evil-collection-init '(magit vterm))
+  ;; vtermでシェルを触っている間は、ターミナル側のキー(C-a/C-e/C-r等)をそのまま
+  ;; 端末へ渡したいのでemacs-stateで起動する。evil-collection-vtermがinsert-stateを
+  ;; 初期状態に設定するため、evil-collection-initより後に上書きする。
+  ;; (AIエージェントのvtermバッファはinsert-state前提のキーバインドを持つため、
+  ;;  ai-agent.el側の起動時にinsert-stateへ切り替えている)
+  (evil-set-initial-state 'vterm-mode 'emacs))
 
 
 (use-package which-key
