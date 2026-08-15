@@ -79,6 +79,35 @@
 ;;移動系
 (bind-key "C-h" 'delete-backward-char)
 
+;;-----------------------------------------------------------
+;; 編集操作(行移動 / マルチカーソル / シンボル)
+;;-----------------------------------------------------------
+;; 行・選択範囲をAlt+↑/↓で入れ替える(VSCodeと同じ操作感)。
+;; どのステートでも同じキーで使いたいので、ステート別マップではなくglobal-mapに置く。
+(bind-key "M-<up>"   'move-text-up)
+(bind-key "M-<down>" 'move-text-down)
+
+;; マルチカーソル(evil-mc)。normal/visualステートで
+;;   C-n … カーソル下と同じ単語の次の出現にカーソルを追加(VSCodeのCtrl+D)
+;;   C-p … 前の出現に追加 / C-t … 現在の候補を飛ばして次へ
+;;   gr m … 全出現に一括で立てる、gr q … 全カーソルを解除
+;; キー自体はevil-mc-modeのキーマップが持つので、ここではwhich-keyの表示だけ補う。
+(which-key-add-key-based-replacements "g r" "multi-cursor")
+
+;; カーソル下のシンボル操作(symbol-overlay)。ハイライト表示は自動だが、
+;; 固定・ジャンプ・バッファ内一括リネームはコマンドで呼ぶ。
+(which-key-add-key-based-replacements "SPC s" "symbol")
+(bind-key "SPC s h" 'symbol-overlay-put evil-normal-state-map)
+(bind-key "SPC s n" 'symbol-overlay-jump-next evil-normal-state-map)
+(bind-key "SPC s p" 'symbol-overlay-jump-prev evil-normal-state-map)
+(bind-key "SPC s r" 'symbol-overlay-rename evil-normal-state-map)
+(bind-key "SPC s q" 'symbol-overlay-remove-all evil-normal-state-map)
+(which-key-add-key-based-replacements "SPC s h" "toggle-highlight")
+(which-key-add-key-based-replacements "SPC s n" "jump-next")
+(which-key-add-key-based-replacements "SPC s p" "jump-prev")
+(which-key-add-key-based-replacements "SPC s r" "rename-in-buffer")
+(which-key-add-key-based-replacements "SPC s q" "remove-all")
+
 ;;シェル
 (bind-key "SPC !" 'shell-command evil-normal-state-map)
 

@@ -27,6 +27,39 @@
   (setq evil-operator-state-cursor '("#E74C3C" hollow)))
 
 
+;;マルチカーソル(VSCodeのCtrl+D相当)
+;; normal/visualステートのC-pで、カーソル下と同じ単語の次の出現にカーソルを増やす。
+;; 一括操作(全出現に立てる/解除する等)はパッケージ既定の gr プレフィックス配下にある。
+;; キーマップはevil-mc-modeのマイナーモードキーマップとして提供されるため、
+;; ここでは有効化だけ行い、上書き・追加が要るキーのみkeybind-manage.elで扱う。
+(use-package evil-mc
+  :straight t
+  :after evil
+  :config
+  (global-evil-mc-mode 1))
+
+
+;;カーソル下のシンボルを自動でハイライトする(VSCodeと同じ挙動)
+(use-package symbol-overlay
+  :straight t
+  :hook (prog-mode . symbol-overlay-mode)
+  :custom
+  ;; 既定の0.5秒はカーソル移動に対して反応が遅く感じるので短くする
+  (symbol-overlay-idle-time 0.2)
+  :init
+  ;; ハイライト部分ではsymbol-overlay-mapがテキストプロパティ経由で最優先になり、
+  ;; evilのn/p/d/e/w等が奪われてしまう。ここではハイライト表示だけが目的なので
+  ;; 抑止し、操作はkeybind-manage.elの SPC s 系に割り当てる。
+  (setq symbol-overlay-inhibit-map t))
+
+
+;;行や選択範囲を上下に移動する(VSCodeのAlt+↑/↓)
+;; evilのvisualステートを考慮した実装なので、範囲を選択したまま続けて動かせる。
+(use-package move-text
+  :straight t
+  :commands (move-text-up move-text-down))
+
+
 
 
 ;;----------------------------------------------------------------------------------------
