@@ -23,3 +23,6 @@ public_repos/
 .claude/settings.local.json
 .claude/worktrees/
 .default-ai-tool
+
+# tree-sitter grammar (マシンごとにビルドするバイナリ。M-x my/treesit-install-grammars で再生成)
+tree-sitter/
