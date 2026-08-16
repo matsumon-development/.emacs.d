@@ -44,7 +44,7 @@ load順が重要になる場合がある(例: keybind-manage.el は package-mana
 |----+-------------------------------------+-----------------------------------------------------------------------|
 |  1 | Emacs (macOSは emacs-mac 推奨)     | macOSでは [[https://github.com/railwaycat/homebrew-emacsmacport][emacs-mac]] (Mitsuharu Macポート, 29.4系) を使用。stipple対応でindent-barsが綺麗に描画でき、日本語IME/描画も良好。詳細は下記「macOSのEmacsビルド」参照 |
 |  2 | [[https://github.com/miiton/Cica/releases][Cica]]                                | 等幅Nerdフォント                                                       |
-|  3 | Node.js / npm (fnm等推奨)          | Claude Code CLI本体、TypeScript/Shell系の言語サーバのインストールに必要 |
+|  3 | Node.js / npm (Homebrew node@24)   | TypeScript/Python/Shell/CSSの言語サーバと prettier のインストールに必要。下記「その他の準備」参照 |
 |  4 | Go                                 | Go言語の編集・gofmt(goimports)・gopls(言語サーバ)に必要                |
 |  5 | CMake / libtool / Cコンパイラ      | vterm(ネイティブモジュール)のビルドに必要。macOSはXcode Command Line Toolsで揃う |
 |  6 | [[https://docs.claude.com/claude-code][Claude Code CLI]] (`claude`コマンド) | package-manage.el のvterm/gptel連携から呼び出す                        |
@@ -82,6 +82,21 @@ rm -rf ~/.emacs.d/straight/build ~/.emacs.d/eln-cache
 
 - 環境変数HOMEに `~` の定義
 - 環境変数ANTHROPIC_API_KEY(gptelのAnthropicバックエンドで使用)
+- Node.js は Homebrew の LTS(node@24)を入れる。keg-onlyでPATHに入らないため、~.zshrc~ にPATHを追加する
+  (GUIのEmacsも basic.el の exec-path-from-shell 経由でこのPATHを引き継ぐ。npmで入れたコマンドは
+  ~/opt/homebrew/bin~ に置かれるが、shebangが ~#!/usr/bin/env node~ なのでnode本体へのPATHが要る)
+
+  #+begin_src sh
+  brew install node@24
+  echo 'export PATH="/opt/homebrew/opt/node@24/bin:$PATH"' >> ~/.zshrc
+  #+end_src
+
+  続けて言語サーバとフォーマッタをまとめて入れる(Go/Rustは別経路なので下表を参照):
+
+  #+begin_src sh
+  npm install -g prettier vscode-langservers-extracted typescript typescript-language-server pyright
+  #+end_src
+
 - Markdownプレビュー(grip-mode)用に *go-grip* を PATH の通った場所へ置く。straightの管理外なので、lockfileから復元しても入らない点に注意。Goツールチェーンは不要で、配布バイナリを展開するだけでよい
 
   #+begin_src sh
@@ -194,8 +209,34 @@ Emacs30標準の eglot で、プログラミング言語ごとに言語サーバ
 | Go         | gopls                        | ~go install golang.org/x/tools/gopls@latest~                   |
 | Rust       | rust-analyzer                | ~rustup component add rust-analyzer~ (要rustupでのRust導入)     |
 | Shell      | bash-language-server         | ~npm install -g bash-language-server~                          |
+| CSS/SCSS   | vscode-css-language-server   | ~npm install -g vscode-langservers-extracted~                  |
 
 (macOS注意) Emacs.appなどGUIから起動したEmacsは、ターミナルの ~.zshrc~ 等で設定したPATHを引き継がない。npmのグローバルインストール先や ~~/.go/bin~ 等に上記を入れてもeglotが見つけられないことがあるため、basic.el で [[https://github.com/purcell/exec-path-from-shell][exec-path-from-shell]] を使いシェルのPATHをEmacsに同期している(通常は追加設定不要)。
+
+*** 保存時の自動フォーマット(apheleia)
+
+保存すると apheleia が外部フォーマッタを非同期で実行する(VSCodeの "Format on Save" 相当)。
+どのモードでどのフォーマッタを使うかは apheleia の既定表(~apheleia-mode-alist~)に従うので、
+設定側では有効化だけしている。フォーマッタ本体は別途インストールする。
+
+| 対象                    | 実行ファイル | インストール例            |
+|-------------------------+--------------+---------------------------|
+| TypeScript/TSX/CSS/JSON | prettier     | ~npm install -g prettier~ |
+| Python                  | black        | ~pip install black~       |
+
+プロジェクトの ~node_modules/.bin~ にフォーマッタがあれば、グローバルより優先して使われる。
+Goだけは従来どおり ~gofmt-before-save~ (goimports)に任せ、二重に整形が走らないよう apheleia の対象から外している。
+
+*** tree-sitter grammar (TypeScript/TSX/CSS)
+
+~.tsx~ / ~.jsx~ はJSXを含むため、~typescript-mode~ では字下げもハイライトも崩れる。
+Emacs29内蔵のtree-sitterモード(~tsx-ts-mode~ / ~typescript-ts-mode~)を使うが、grammarは各マシンでのビルドが必要。
+下記を一度実行してEmacsを再起動する(Cコンパイラとgitが要る)。
+
+: M-x my/treesit-install-grammars
+
+未導入の間は従来の ~typescript-mode~ で開くようにしてあるので、実行しなくても編集自体はできる
+(その場合はJSXの字下げが崩れる)。
 
 ** Emacsビルドの切り替え (emacs-plus 30 ⇔ emacs-mac 29)
 

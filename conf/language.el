@@ -289,8 +289,46 @@ tsv-mode が `csv-field-quotes' を nil にするが、rainbow-csv は
   :straight t
   :defer    t
   :custom   (typescript-indent-level 2)
-  :mode     ("\\.ts\\'" . typescript-mode)
+  ;; typescript-modeはJSXを解釈できないが、grammar未導入の間も.tsx/.jsxを
+  ;; 開けるよう暫定で割り当てておく(grammarがあれば下でtsx-ts-modeに上書きする)。
+  :mode     (("\\.ts\\'"      . typescript-mode)
+             ("\\.[jt]sx\\'"  . typescript-mode))
   )
+
+
+;;            TypeScript/JSX の tree-sitter モード
+;; .tsx はJSXを含むため、typescript-mode(.ts用)では字下げもハイライトも崩れる。
+;; Emacs 29内蔵のtree-sitterモード(tsx-ts-mode / typescript-ts-mode)なら正しく扱え、
+;; VSCodeと同じ typescript-language-server にeglotがそのまま繋がる
+;; (eglot-server-programs に登録済みで、tsxは languageId=typescriptreact になる)。
+;; grammarは各自のマシンでビルドする必要があるため、未導入の環境では
+;; 上のtypescript-modeのまま動くようにしてある。
+(defvar my/treesit-language-sources
+  '((typescript "https://github.com/tree-sitter/tree-sitter-typescript" "master" "typescript/src")
+    (tsx        "https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src")
+    (css        "https://github.com/tree-sitter/tree-sitter-css"))
+  "`my/treesit-install-grammars' で取得するtree-sitterのgrammar一覧。")
+
+(defun my/treesit-install-grammars ()
+  "未導入のtree-sitter grammarをまとめてビルド・インストールする。
+Cコンパイラとgitが必要。実行後にEmacsを再起動すると各ts-modeが有効になる。"
+  (interactive)
+  (unless (treesit-available-p)
+    (user-error "このEmacsはtree-sitterに対応していません"))
+  (setq treesit-language-source-alist my/treesit-language-sources)
+  (dolist (src my/treesit-language-sources)
+    (unless (treesit-language-available-p (car src))
+      (treesit-install-language-grammar (car src))))
+  (message "tree-sitter grammarの導入が完了しました。Emacsを再起動してください"))
+
+;; grammarが入っているものだけts-modeへ切り替える。auto-mode-alistは先頭から
+;; 探索されるので、後から add-to-list したこちらが上のtypescript-modeより優先される。
+(when (and (fboundp 'treesit-available-p) (treesit-available-p))
+  (setq treesit-language-source-alist my/treesit-language-sources)
+  (when (treesit-language-available-p 'tsx)
+    (add-to-list 'auto-mode-alist '("\\.[jt]sx\\'" . tsx-ts-mode)))
+  (when (treesit-language-available-p 'typescript)
+    (add-to-list 'auto-mode-alist '("\\.ts\\'" . typescript-ts-mode))))
 
 
 ;;            C#
@@ -349,13 +387,20 @@ tsv-mode が `csv-field-quotes' を nil にするが、rainbow-csv は
 ;;   Go        : gopls          (go install golang.org/x/tools/gopls@latest)
 ;;   Rust      : rust-analyzer  (rustup component add rust-analyzer)
 ;;   Shell     : bash-language-server (npm install -g bash-language-server)
+;;   CSS/SCSS  : vscode-css-language-server (npm install -g vscode-langservers-extracted)
 (use-package eglot
   :defer t
-  :hook ((python-mode     . eglot-ensure)
-         (typescript-mode . eglot-ensure)
-         (go-mode         . eglot-ensure)
-         (rust-mode       . eglot-ensure)
-         (sh-mode         . eglot-ensure)))
+  :hook ((python-mode        . eglot-ensure)
+         (typescript-mode    . eglot-ensure)
+         ;; tree-sitter版のTS/TSX。tsserverはVSCodeと同じものを使う
+         (typescript-ts-mode . eglot-ensure)
+         (tsx-ts-mode        . eglot-ensure)
+         ;; CSS/SCSSもVSCodeと同じ vscode-css-language-server に繋ぐ
+         (css-mode           . eglot-ensure)
+         (scss-mode          . eglot-ensure)
+         (go-mode            . eglot-ensure)
+         (rust-mode          . eglot-ensure)
+         (sh-mode            . eglot-ensure)))
 
 ;; lsp-mode/lsp-pyrightはeglotとの比較用に残しているが、自動起動フックは外している。
 ;; 試したい場合はバッファ内で (require 'lsp-pyright) や M-x lsp-deferred を手動実行する。
@@ -375,6 +420,24 @@ tsv-mode が `csv-field-quotes' を nil にするが、rainbow-csv は
 (use-package lsp-pyright
   :straight t
   :defer    t)
+
+
+;;----------------------------------------------------------------------------------------------------
+;; フォーマッタ(保存時の自動整形)
+;;----------------------------------------------------------------------------------------------------
+;; VSCodeの"Format on Save"相当。apheleiaは外部フォーマッタを非同期で走らせ、
+;; カーソル位置とスクロール位置を保ったまま結果を反映するので保存が引っかからない。
+;; どのモードでどのフォーマッタを使うかはapheleia-mode-alistに既定が揃っている
+;; (TypeScript/TSX/CSS/SCSS/JSON=prettier、Python=black など)。
+;; フォーマッタ本体は別途インストールが必要:
+;;   prettier (npm install -g prettier。プロジェクトのnode_modules配下があればそちらが優先される)
+(use-package apheleia
+  :straight t
+  :hook (after-init . apheleia-global-mode)
+  :config
+  ;; Goは既存の gofmt-before-save(gofmt-commandにgoimportsを指定)に任せる。
+  ;; apheleiaのgo-mode既定はgofmtでimport整理が入らないうえ、二重に整形が走るため外す。
+  (setf (alist-get 'go-mode apheleia-mode-alist nil t) nil))
 
 
 ;;----------------------------------------------------------------------------------------------------

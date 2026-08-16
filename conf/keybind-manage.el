@@ -108,6 +108,11 @@
 (which-key-add-key-based-replacements "SPC s r" "rename-in-buffer")
 (which-key-add-key-based-replacements "SPC s q" "remove-all")
 
+;; コード整形。保存時はapheleiaが自動で走るが、保存せずに整えたいとき用。
+(which-key-add-key-based-replacements "SPC c" "code")
+(bind-key "SPC c f" 'apheleia-format-buffer evil-normal-state-map)
+(which-key-add-key-based-replacements "SPC c f" "format-buffer")
+
 ;;シェル
 (bind-key "SPC !" 'shell-command evil-normal-state-map)
 
