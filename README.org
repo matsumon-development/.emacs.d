@@ -44,7 +44,7 @@ load順が重要になる場合がある(例: keybind-manage.el は package-mana
 |----+-------------------------------------+-----------------------------------------------------------------------|
 |  1 | Emacs (macOSは emacs-mac 推奨)     | macOSでは [[https://github.com/railwaycat/homebrew-emacsmacport][emacs-mac]] (Mitsuharu Macポート, 29.4系) を使用。stipple対応でindent-barsが綺麗に描画でき、日本語IME/描画も良好。詳細は下記「macOSのEmacsビルド」参照 |
 |  2 | [[https://github.com/miiton/Cica/releases][Cica]]                                | 等幅Nerdフォント                                                       |
-|  3 | Node.js / npm (Homebrew node@24)   | TypeScript/Python/Shell/CSSの言語サーバと prettier のインストールに必要。下記「その他の準備」参照 |
+|  3 | Node.js / npm (fnmで管理)          | TypeScript/Python/Shell/CSSの言語サーバと prettier のインストールに必要。下記「その他の準備」参照 |
 |  4 | Go                                 | Go言語の編集・gofmt(goimports)・gopls(言語サーバ)に必要                |
 |  5 | CMake / libtool / Cコンパイラ      | vterm(ネイティブモジュール)のビルドに必要。macOSはXcode Command Line Toolsで揃う |
 |  6 | [[https://docs.claude.com/claude-code][Claude Code CLI]] (`claude`コマンド) | package-manage.el のvterm/gptel連携から呼び出す                        |
@@ -82,20 +82,38 @@ rm -rf ~/.emacs.d/straight/build ~/.emacs.d/eln-cache
 
 - 環境変数HOMEに `~` の定義
 - 環境変数ANTHROPIC_API_KEY(gptelのAnthropicバックエンドで使用)
-- Node.js は Homebrew の LTS(node@24)を入れる。keg-onlyでPATHに入らないため、~.zshrc~ にPATHを追加する
-  (GUIのEmacsも basic.el の exec-path-from-shell 経由でこのPATHを引き継ぐ。npmで入れたコマンドは
-  ~/opt/homebrew/bin~ に置かれるが、shebangが ~#!/usr/bin/env node~ なのでnode本体へのPATHが要る)
+- Node.js は [[https://github.com/Schniz/fnm][fnm]] で管理する(LTSのv24系を使用)。
 
   #+begin_src sh
-  brew install node@24
-  echo 'export PATH="/opt/homebrew/opt/node@24/bin:$PATH"' >> ~/.zshrc
+  brew install fnm
+  fnm install 24 && fnm default 24
   #+end_src
+
+  ~.zshrc~ には下記を書く(順序に意味がある。詳細は次の段落)。
+
+  #+begin_src sh
+  # FNM_DIR の既定は "~/Library/Application Support/fnm" でPATHにスペースが入るため寄せる
+  export FNM_DIR="$HOME/.local/share/fnm"
+  export PATH="$PATH:$FNM_DIR/aliases/default/bin"
+  eval "$(fnm env --use-on-cd --shell zsh)"
+  #+end_src
+
+  GUI起動のEmacsは basic.el の exec-path-from-shell が ~zsh -l -i~ を起動してPATHを取り込むので、
+  ~.zshrc~ に書けば同期される。ただし ~fnm env~ がPATHの先頭に足すのは *シェルごとの一時ディレクトリ*
+  (~~/.local/state/fnm_multishells/<pid>_<時刻>~ 。実体は ~aliases/default~ へのsymlink)で、
+  そのシェルが終われば消える。Emacsは起動時に取り込んだPATHを持ち続けるため、それだけだといずれ
+  nodeを見失う。そこで default バージョンへの *安定したパス* を先に末尾へ足しておき、
+  そのあとに ~fnm env~ で一時ディレクトリを先頭に載せる(通常のシェルでは ~.node-version~ に応じた
+  切り替えが効き、Emacsから見ると最低限 default のnodeが常に見つかる、という二段構えにする)。
 
   続けて言語サーバとフォーマッタをまとめて入れる(Go/Rustは別経路なので下表を参照):
 
   #+begin_src sh
   npm install -g prettier vscode-langservers-extracted typescript typescript-language-server pyright
   #+end_src
+
+  npmのグローバルパッケージは *Nodeのバージョンごと* に入る。~fnm default~ で別バージョンへ
+  切り替えたときは、上記のインストールをやり直す。
 
 - Markdownプレビュー(grip-mode)用に *go-grip* を PATH の通った場所へ置く。straightの管理外なので、lockfileから復元しても入らない点に注意。Goツールチェーンは不要で、配布バイナリを展開するだけでよい
 
