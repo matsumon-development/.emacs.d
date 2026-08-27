@@ -39,14 +39,10 @@
     (vterm-send-string
      (format "cd %s && %s\n" (shell-quote-argument project-root) command))))
 
-(defun my/ai-agent--enter-insert-state ()
-  "現在のバッファ(AIエージェントのvterm)をevilのinsert-stateにする。
-vtermの初期ステートは、シェル操作でターミナル側のキーをそのまま使えるように
-emacs-stateにしている(conf/package-manage.el)。一方AIエージェントのバッファは
-insert-state前提のキーバインド(C-c C-gでのESC送信など)をkeybind-manage.elで
-束縛しているため、起動直後にinsert-stateへ切り替える。"
-  (when (fboundp 'evil-insert-state) (evil-insert-state)))
-
+;; AIエージェントのバッファも、素の端末と同じくemacs-stateのまま扱う
+;; (vterm-modeの初期ステート設定はconf/package-manage.el)。claude/agy/bobはESCや
+;; C-a/C-r等を多用するTUIなので、evilに横取りさせず端末へそのまま渡すのが目的。
+;; スクロールバックをvi操作で読みたいときは C-z で normal-state に入る。
 (defun my/ai-agent-run (command mode-fn buffer-name-fn)
   "COMMANDをvtermで起動(既存バッファがあれば再利用)し、MODE-FNを有効化する。
 BUFFER-NAME-FN はプロジェクトルートを受け取りバッファ名を返す関数。"
@@ -56,10 +52,7 @@ BUFFER-NAME-FN はプロジェクトルートを受け取りバッファ名を�
          (existed (get-buffer buffer-name))
          (buf (my/vterm-get-or-create buffer-name #'my/vterm-pop-to-buffer-oriented)))
     (with-current-buffer buf
-      (funcall mode-fn 1)
-      ;; 起動直後は入力したい状態なので、新規作成時のみinsert-stateにする
-      ;; (再表示のときは、そのバッファで選んでいたステートを保つ)
-      (unless existed (my/ai-agent--enter-insert-state)))
+      (funcall mode-fn 1))
     (unless existed
       (my/ai-agent--send-startup buf project-root command))))
 
@@ -98,8 +91,7 @@ BUFFER-NAME-FN はプロジェクトルートを受け取りバッファ名を�
               (with-current-buffer buf
                 (vterm-mode)))
             (with-current-buffer buf
-              (funcall mode-fn 1)
-              (unless existed (my/ai-agent--enter-insert-state)))
+              (funcall mode-fn 1))
             (unless existed
               (my/ai-agent--send-startup buf project-root command))
             ;; 現在のフレームで分割表示されていれば、そのウィンドウだけ閉じる

@@ -323,24 +323,20 @@
 (which-key-add-key-based-replacements "SPC a C-q" "kill-buffer-and-window")
 
 ;; 各AIエージェントのバッファ内キーバインド。
-;;   q        … ウィンドウを閉じる(バッファ・プロセスは残す)
-;;   C-c C-g … 入力欄をクリア(ESC送信)
-;;   C-h      … カーソル前の1文字を削除(backspace)
+;;   q        … ウィンドウを閉じる(バッファ・プロセスは残す。normal-stateのみ)
 ;;   C-c C-w … 別フレームから元のフレームの分割ウィンドウへ戻す
-;;             (別フレーム側のバッファでそのまま押せるよう normal/insert 両方に束縛)
+;;             (別フレーム側のバッファでそのまま押せるよう emacs/normal 両方に束縛)
+;; エージェントのバッファはemacs-stateなので(conf/package-manage.el)、ESCや
+;; C-h(backspace, vterm-mode-map側で束縛)はevilに横取りされず端末へ直接届く。
+;; そのためESC送信用の代替キーや、insert-state束縛の上書きは不要。
 ;; ai-agent.el の my/ai-agents レジストリに登録された全モードマップへ一括束縛するので、
 ;; エージェントを増やしても、ここを触らずに自動で対応できる。
 (with-eval-after-load 'evil
   (dolist (agent my/ai-agents)
     (let ((mode-map (symbol-value (plist-get (cdr agent) :mode-map))))
       (evil-define-key 'normal mode-map "q" #'my/ai-tool-quit-window)
-      (evil-define-key 'insert mode-map (kbd "C-c C-g") #'vterm-send-escape)
-      ;; エージェントのバッファはinsert-stateなので、vterm-mode-map側の束縛は
-      ;; evil-collectionのinsert-state束縛に負けることがある。
-      ;; エージェント固有のマイナーモードマップへ束縛して確実に上書きする。
-      (evil-define-key 'insert mode-map (kbd "C-h") #'vterm-send-backspace)
-      (evil-define-key 'normal mode-map (kbd "C-c C-w") #'my/ai-agent-back-to-window)
-      (evil-define-key 'insert mode-map (kbd "C-c C-w") #'my/ai-agent-back-to-window))))
+      (evil-define-key '(emacs normal) mode-map
+        (kbd "C-c C-w") #'my/ai-agent-back-to-window))))
 
 ;; プロンプト編集バッファ(compose)内のキーバインド。
 ;;   C-c C-c … 送信してバッファ・ウィンドウを閉じる(normal/insert両方で)

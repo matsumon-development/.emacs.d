@@ -17,6 +17,11 @@
   :straight t
   :init
   (setq evil-want-keybinding nil) ; evil-collection使用のため、evilロード前にnilにする
+  ;; insertステートではevil独自の束縛(C-a/C-e/C-n/C-p/C-w/C-y/C-d/C-t等)を使わず、
+  ;; 素のEmacsキーをそのまま使う。ESC(normalへ復帰)・delete・C-zは常に残るので、
+  ;; ./c/A/ビジュアルブロック挿入・evil-mc といったinsertステート前提の機能は保たれる。
+  ;; 反映はevilロード後のevil-after-load-hookで行われるため、ロード前に設定する。
+  (setq evil-disable-insert-state-bindings t)
   (evil-mode 1)
   :config
   (setq evil-emacs-state-cursor    '("#E74C3C" box))
@@ -661,11 +666,10 @@
   :after (evil magit)
   :config
   (evil-collection-init '(magit vterm))
-  ;; vtermでシェルを触っている間は、ターミナル側のキー(C-a/C-e/C-r等)をそのまま
+  ;; vtermでシェルを触っている間は、ターミナル側のキー(ESCやC-a/C-e/C-r等)をそのまま
   ;; 端末へ渡したいのでemacs-stateで起動する。evil-collection-vtermがinsert-stateを
   ;; 初期状態に設定するため、evil-collection-initより後に上書きする。
-  ;; (AIエージェントのvtermバッファはinsert-state前提のキーバインドを持つため、
-  ;;  ai-agent.el側の起動時にinsert-stateへ切り替えている)
+  ;; (AIエージェントのvtermバッファも同じ理由でemacs-stateのまま使う)
   (evil-set-initial-state 'vterm-mode 'emacs))
 
 
