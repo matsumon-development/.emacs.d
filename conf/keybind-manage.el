@@ -280,6 +280,29 @@
 (bind-key "SPC m p" 'grip-mode evil-normal-state-map)
 (which-key-add-key-based-replacements "SPC m p" "toggle-preview")
 
+;; SPC m i: クリップボードの画像をorgファイルと同じディレクトリに保存して貼り付ける
+;; (コマンド本体は conf/language.el)。org-mode以外ではコマンド側でエラーになる。
+(bind-key "SPC m i" 'my/org-insert-clipboard-image evil-normal-state-map)
+(which-key-add-key-based-replacements "SPC m i" "insert-clipboard-image")
+;; 文章を書いている途中(insertステート)でも手を止めずに貼れるよう、org-mode-mapにも置く。
+;; C-c C-i は org-ctrl-c-tab が使っているため、空いている C-c i にする。
+(with-eval-after-load 'org
+  (define-key org-mode-map (kbd "C-c i") #'my/org-insert-clipboard-image))
+
+;; カーソル位置(またはその行)の画像の表示サイズを変える(コマンド本体は conf/language.el)。
+;;   SPC m + / SPC m - … 1段階ずつ拡大/縮小。押した直後は + / - の連打で続けて調整できる
+;;   SPC m w           … 幅(px)を直接指定。空入力なら指定を消して既定の幅に戻す
+;; org側の #+ATTR_ORG: :width を書き換えるだけなので、画像ファイルには手を触れない。
+(bind-key "SPC m +" 'my/org-image-enlarge evil-normal-state-map)
+(bind-key "SPC m -" 'my/org-image-shrink evil-normal-state-map)
+(bind-key "SPC m w" 'my/org-image-set-width evil-normal-state-map)
+(which-key-add-key-based-replacements "SPC m +" "image-enlarge")
+(which-key-add-key-based-replacements "SPC m -" "image-shrink")
+(which-key-add-key-based-replacements "SPC m w" "image-set-width")
+;; 書いている途中でも押せるよう、org-mode-mapにも置く(C-c + / C-c - はorgのtable系が使用済み)。
+(with-eval-after-load 'org
+  (define-key org-mode-map (kbd "C-c w") #'my/org-image-set-width))
+
 ;;-----------------------------------------------------------
 ;; vterm
 ;;-----------------------------------------------------------

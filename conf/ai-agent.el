@@ -896,39 +896,8 @@ vtermバッファならそのvtermへ送る。"
 ;; そこでクリップボードの画像をPNGに保存し、そのパスを compose バッファへ挿入する。
 ;; 送信(C-c C-c)すると通常テキストと同様にパスが claude へ渡り、画像が読み込まれる。
 ;; pngpaste 等の外部導入に依存せず、macOS標準の osascript だけで完結させる。
-(defconst my/clipboard-image-to-png-applescript
-  (concat
-   "on run argv\n"
-   "  try\n"
-   "    set pngData to (the clipboard as «class PNGf»)\n"
-   "  on error\n"
-   "    return \"NOIMAGE\"\n"
-   "  end try\n"
-   "  set f to open for access (POSIX file (item 1 of argv)) with write permission\n"
-   "  set eof f to 0\n"
-   "  write pngData to f\n"
-   "  close access f\n"
-   "  return \"OK\"\n"
-   "end run")
-  "クリップボード画像をPNGとして引数のパスへ書き出すAppleScript。画像が無ければ NOIMAGE を返す。")
-
-(defun my/clipboard-image-to-file ()
-  "macOSのクリップボードにある画像をPNGで一時ファイルへ書き出し、そのパスを返す。
-クリップボードに画像が無ければ nil を返す。"
-  (unless (eq system-type 'darwin)
-    (user-error "クリップボード画像の取り込みはmacOSのみ対応です"))
-  (let* ((file (make-temp-file "claude-clip-" nil ".png"))
-         ;; osascript は画像の色空間変換などで stderr に警告
-         ;; ("*** Error creating a JP2 color space ...") を出すことがある。
-         ;; stdout と混ざると戻り値判定("OK")が崩れるため、stderr は分離して捨てる。
-         (result (with-temp-buffer
-                   (call-process "osascript" nil (list t nil) nil
-                                 "-e" my/clipboard-image-to-png-applescript file)
-                   (string-trim (buffer-string)))))
-    (if (string= result "OK")
-        file
-      (ignore-errors (delete-file file))
-      nil)))
+;; クリップボード→PNG の書き出し(my/clipboard-image-to-file)は、org-mode 側でも
+;; 使う汎用処理なので conf/mylisp.el に置いている。
 
 (defun my/ai-compose--preview-image (file)
   "FILE の画像を compose ウィンドウの隣(右側)に表示する(フォーカスは移さない)。

@@ -14,13 +14,233 @@
 (use-package org
   :defer t
   :mode(("\\.org\\'" . org-mode))
+  ;; 新規ファイルにはタイトル行を入れておく(関数はこのファイルの下で定義)
+  :hook (org-mode . my/org-new-file-insert-title)
   :config
-  (setq org-todo-keywords '((sequence "TODO(t)" "WIP(w)" "|" "DONE(d)"))))
+  (setq org-todo-keywords '((sequence "TODO(t)" "WIP(w)" "|" "DONE(d)")))
+  ;; 貼り付けた画像を毎回トグルせず見られるよう、ファイルを開いた時点から
+  ;; 画像リンクをインライン表示する(既定はnilで、C-c C-x C-v を押すまで出ない)。
+  (setq org-startup-with-inline-images t)
+  ;; スクリーンショットは実寸だと画面を埋めてしまうので、表示幅を600pxに抑える。
+  ;; リンクごとに変えたいときは #+ATTR_ORG: :width ... を書けばそちらが優先される。
+  (setq org-image-actual-width '(600)))
+
+;;----------------------------------------------------------------------------------------------------
+;; org-mode: 新規ファイルに #+TITLE: を入れる
+;;----------------------------------------------------------------------------------------------------
+;; org-modeのバッファは capture や org-src など「ファイルを持たないもの」もあるため、
+;; 「ファイルを訪問していて」「そのファイルがまだ無く」「中身が空」の3条件で
+;; 新規作成時だけに絞る(既存ファイルの中身を触らないようにするため)。
+
+(defun my/org-new-file-insert-title ()
+  "新規に作ったorgファイルの先頭に、ファイル名をタイトルとして入れる。"
+  (when (and buffer-file-name
+             (not (file-exists-p buffer-file-name))
+             (zerop (buffer-size)))
+    (insert (format "#+TITLE: %s\n\n" (file-name-base buffer-file-name)))
+    ;; すぐ本文を書き始められるよう、カーソルはタイトルの下(空行)に置く
+    (goto-char (point-max))))
+
 (use-package org-bullets
   :after org
   :straight t
   :custom (org-bullets-bullet-list '("" "" "" "" "" "" "" "" "" ""))
   :hook (org-mode . org-bullets-mode))
+
+;;----------------------------------------------------------------------------------------------------
+;; org-mode: クリップボードの画像を「貼り付け」る
+;;----------------------------------------------------------------------------------------------------
+;; クリップボードの画像をorgファイルと同じディレクトリにPNGとして保存し、
+;; その相対パスへのリンクを挿入してインライン表示する(貼り付けたように見せる)。
+;; org 9.7の org-yank-media が同等のことをするが、Emacs 29.4 同梱のorgは 9.6 系で
+;; ハンドラ自体が無いため、ここでは自前のコマンドを用意する。
+;; クリップボード→PNG の書き出しは my/clipboard-image-to-file(conf/mylisp.el)。
+
+(defun my/org--unique-image-file (dir base)
+  "DIR の中で BASE.png が空いていればそのパスを、埋まっていれば連番を足したパスを返す。
+同じ秒に2枚貼っても、既存の画像を上書きしないようにするため。"
+  (let ((file (expand-file-name (concat base ".png") dir))
+        (n 1))
+    (while (file-exists-p file)
+      (setq file (expand-file-name (format "%s-%d.png" base n) dir)
+            n (1+ n)))
+    file))
+
+(defun my/org-insert-clipboard-image (&optional name)
+  "クリップボードの画像をPNGで保存し、リンクを挿入してインライン表示する。
+保存先はorgファイルと同じディレクトリ(ファイル未保存のバッファでは
+`default-directory')。ファイル名は「orgのファイル名-日時.png」を自動生成するが、
+C-u 付きで呼ぶと NAME を尋ねる(拡張子は不要)。"
+  (interactive
+   (list (when current-prefix-arg
+           (read-string "画像のファイル名(拡張子なし): "))))
+  (unless (derived-mode-p 'org-mode)
+    (user-error "org-modeのバッファではありません"))
+  (let* ((dir (if buffer-file-name
+                  (file-name-directory buffer-file-name)
+                default-directory))
+         (base (or (and name (not (string-empty-p (string-trim name)))
+                        (string-trim name))
+                   (format "%s-%s"
+                           (if buffer-file-name
+                               (file-name-base buffer-file-name)
+                             "clipboard")
+                           (format-time-string "%Y%m%d-%H%M%S"))))
+         (file (my/org--unique-image-file dir base)))
+    (unless (my/clipboard-image-to-file file)
+      (user-error "クリップボードに画像がありません"))
+    ;; 画像は前後に空行を置いて、1枚ずつ独立した段落にする。
+    ;; 表示幅の #+ATTR_ORG は段落単位で効くため、同じ段落に2枚並べてしまうと
+    ;; 片方だけサイズを変えられなくなる(my/org-image-enlarge 等が効く単位に合わせる)。
+    (let ((start (point)))
+      (unless (bolp) (insert "\n"))
+      (unless (save-excursion (forward-line -1) (looking-at-p "^[ \t]*$"))
+        (insert "\n"))
+      (insert (format "[[file:%s]]\n" (file-relative-name file dir)))
+      (unless (looking-at-p "^[ \t]*$")
+        (save-excursion (insert "\n")))
+      ;; 挿入した範囲だけを再描画する(バッファ全体を走査しないので大きなファイルでも軽い)
+      (org-display-inline-images nil t start (point)))
+    (message "画像を保存: %s" (file-relative-name file dir))))
+
+;;----------------------------------------------------------------------------------------------------
+;; org-mode: カーソル位置の画像の表示サイズを変える
+;;----------------------------------------------------------------------------------------------------
+;; リンクを含む段落に #+ATTR_ORG: :width を付け外しして、インライン表示の幅だけを変える
+;; (画像ファイル自体は加工しない)。幅の求め方は org 本体の実装に合わせてあるので、
+;; org-image-actual-width の既定値(このファイル上部)ともそのまま整合する。
+
+(defvar my/org-image-resize-step 1.25
+  "画像を1回拡大/縮小するときの倍率。")
+
+(defvar my/org-image-min-width 50
+  "拡大/縮小で下回らない表示幅(px)。縮めすぎて画像を見失わないようにするため。")
+
+(defconst my/org-image-attr-width-re
+  "^[ \t]*#\\+attr_.*?: +.*?\\(:width +\\(\\S-+\\)\\)"
+  "段落に付いた #+ATTR_*: :width を拾う正規表現。
+グループ1が \":width 300\" 全体、グループ2が数値部分。
+どの #+ATTR_* でも効く点は org 本体(org-display-inline-image--width)と同じ。")
+
+(defun my/org-image--link-here ()
+  "カーソル位置ちょうどにある画像ファイルリンクのorg要素を返す(無ければnil)。"
+  (let ((ctx (org-element-context)))
+    (and (eq (org-element-type ctx) 'link)
+         (equal (org-element-property :type ctx) "file")
+         (image-supported-file-p (org-element-property :path ctx))
+         ctx)))
+
+(defun my/org-image--link-at-point ()
+  "カーソル位置、無ければその行にある画像ファイルリンクのorg要素を返す。
+インライン表示中はリンク全体が画像に置き換わっているので、
+行のどこにカーソルがあっても掴めるようにしている。"
+  (or (my/org-image--link-here)
+      (save-excursion
+        (beginning-of-line)
+        (when (re-search-forward org-link-any-re (line-end-position) t)
+          (goto-char (match-beginning 0))
+          (my/org-image--link-here)))))
+
+(defun my/org-image--current-width (link)
+  "LINK の現在の表示幅(px)を返す。
+ATTRにも org-image-actual-width にも幅指定が無ければ、画像の実寸を返す。
+org-display-inline-image--width はorg内部の関数だが、表示幅の決定を
+org本体と同じ規則で行いたいのでそのまま使う。"
+  (let ((w (org-display-inline-image--width link)))
+    (if (numberp w)
+        (round w)
+      (car (image-size (create-image
+                        (expand-file-name (org-element-property :path link)))
+                       t)))))
+
+(defun my/org-image--set-attr-width (link width)
+  "LINK を含む段落の #+ATTR_ORG: :width を WIDTH(px)にする。
+WIDTH が nil なら幅指定を取り除き、org-image-actual-width の既定に戻す。"
+  (let* ((par (org-element-lineage link '(paragraph)))
+         (case-fold-search t))
+    (unless par
+      (user-error "この画像には #+ATTR を付けられません(段落の中にありません)"))
+    (save-excursion
+      (goto-char (org-element-property :begin par))
+      (if (re-search-forward my/org-image-attr-width-re
+                             (org-element-property :post-affiliated par) t)
+          (if width
+              (replace-match (number-to-string width) t t nil 2)
+            (replace-match "" t t nil 1)
+            ;; 他の属性が並ぶ行では、消した箇所の前後で空白が二重になるので詰める
+            (when (and (eq (char-before) ?\s) (looking-at-p " "))
+              (delete-char 1))
+            ;; 幅指定しか無かった行は、空の #+ATTR_ORG: が残るので行ごと消す
+            (when (save-excursion
+                    (beginning-of-line)
+                    (looking-at-p "^[ \t]*#\\+attr_[^:]*:[ \t]*$"))
+              (delete-region (line-beginning-position)
+                             (min (point-max) (1+ (line-end-position))))))
+        (when width
+          ;; 段落本文の直前(既存の #+ATTR_* 等の後ろ)に新しく1行足す
+          (goto-char (org-element-property :post-affiliated par))
+          (insert (format "#+ATTR_ORG: :width %d\n" width)))))))
+
+(defun my/org-image--redisplay ()
+  "カーソル位置の段落のインライン画像を、いまの幅指定で表示し直す。
+org-display-inline-images は refresh 付きでも既存オーバーレイを作り直さず
+画像キャッシュを流すだけなので、幅を変えるには一度消してから表示する。"
+  (let* ((link (my/org-image--link-at-point))
+         (par (and link (org-element-lineage link '(paragraph))))
+         (beg (if par (org-element-property :begin par) (line-beginning-position)))
+         (end (if par (org-element-property :end par) (line-end-position))))
+    (org-remove-inline-images beg end)
+    (org-display-inline-images nil t beg end)))
+
+(defvar my/org-image-resize-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map "+" #'my/org-image-enlarge)
+    (define-key map "=" #'my/org-image-enlarge) ; Shiftを押さずに拡大できるように
+    (define-key map "-" #'my/org-image-shrink)
+    map)
+  "拡大/縮小の直後だけ有効になる一時キーマップ。+ / - を連打して詰められる。")
+
+(defun my/org-image--resize (factor)
+  "カーソル位置の画像の表示幅を FACTOR 倍にして、その場で表示し直す。"
+  (unless (derived-mode-p 'org-mode)
+    (user-error "org-modeのバッファではありません"))
+  (let* ((link (or (my/org-image--link-at-point)
+                   (user-error "カーソル位置に画像リンクがありません")))
+         (new (max my/org-image-min-width
+                   (round (* (my/org-image--current-width link) factor)))))
+    (my/org-image--set-attr-width link new)
+    (my/org-image--redisplay)
+    ;; 続けて + / - を押すだけで調整できるようにする
+    (set-transient-map my/org-image-resize-map t)
+    (message "画像の表示幅: %dpx (+ / - で調整)" new)))
+
+(defun my/org-image-enlarge ()
+  "カーソル位置の画像の表示を `my/org-image-resize-step' 倍に拡大する。"
+  (interactive)
+  (my/org-image--resize my/org-image-resize-step))
+
+(defun my/org-image-shrink ()
+  "カーソル位置の画像の表示を `my/org-image-resize-step' 分の1に縮小する。"
+  (interactive)
+  (my/org-image--resize (/ 1.0 my/org-image-resize-step)))
+
+(defun my/org-image-set-width (width)
+  "カーソル位置の画像の表示幅(px)を WIDTH に設定する。
+空入力なら幅指定を消して、org-image-actual-width の既定に戻す。"
+  (interactive
+   (list (let ((s (string-trim (read-string "表示幅(px、空入力で既定に戻す): "))))
+           (cond ((string-empty-p s) nil)
+                 ((> (string-to-number s) 0) (round (string-to-number s)))
+                 (t (user-error "正の数を入力してください"))))))
+  (unless (derived-mode-p 'org-mode)
+    (user-error "org-modeのバッファではありません"))
+  (let ((link (or (my/org-image--link-at-point)
+                  (user-error "カーソル位置に画像リンクがありません"))))
+    (my/org-image--set-attr-width link width)
+    (my/org-image--redisplay)
+    (set-transient-map my/org-image-resize-map t)
+    (message (if width "画像の表示幅: %spx (+ / - で調整)" "画像の表示幅を既定に戻しました")
+             width)))
 
 
 
