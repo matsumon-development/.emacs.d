@@ -17,7 +17,22 @@
   ;; 新規ファイルにはタイトル行を入れておく(関数はこのファイルの下で定義)
   :hook (org-mode . my/org-new-file-insert-title)
   :config
-  (setq org-todo-keywords '((sequence "TODO(t)" "WIP(w)" "|" "DONE(d)")))
+  ;; #+TITLE: の値だけを大きくする(関数はこのファイルの下で定義)
+  (my/org-enlarge-document-title)
+  ;; ワークフローは TODO(未着手) → WIP(着手中) → DONE。
+  ;; 自分の手を離れて止まっているものは WAIT、やらずに終えたものは CANCELED に落とす。
+  ;; "|" の右側が完了状態なので、CANCELED も完了扱い(残タスクとして数えられない)。
+  ;; 括弧内は C-c C-t から1文字で選ぶためのキー(大文字小文字で区別するので W と w は別)。
+  (setq org-todo-keywords
+        '((sequence "TODO(t)" "WIP(w)" "WAIT(W)" "|" "DONE(d)" "CANCELED(c)")))
+  ;; 色はテーマ固有の色名ではなく、error/warning/success といった意味付きのfaceから
+  ;; 継承する。SPC t c で明るいテーマに切り替えてもそのテーマの色に追従させるため。
+  (setq org-todo-keyword-faces
+        '(("TODO"     . (:inherit error :weight bold))
+          ("WIP"      . (:inherit warning :weight bold))
+          ("WAIT"     . (:inherit font-lock-comment-face :weight bold))
+          ("DONE"     . (:inherit success :weight bold))
+          ("CANCELED" . (:inherit shadow :weight bold :strike-through t))))
   ;; 貼り付けた画像を毎回トグルせず見られるよう、ファイルを開いた時点から
   ;; 画像リンクをインライン表示する(既定はnilで、C-c C-x C-v を押すまで出ない)。
   (setq org-startup-with-inline-images t)
@@ -41,11 +56,58 @@
     ;; すぐ本文を書き始められるよう、カーソルはタイトルの下(空行)に置く
     (goto-char (point-max))))
 
-(use-package org-bullets
-  :after org
+;;----------------------------------------------------------------------------------------------------
+;; org-mode: #+TITLE: の文字を大きくする
+;;----------------------------------------------------------------------------------------------------
+;; 大きくなるのは "#+TITLE:" の後ろの値だけ。先頭の "#+TITLE:" 自体は
+;; org-document-info-keyword という別のfaceなので等倍のまま。
+
+(defvar my/org-document-title-height 1.6
+  "#+TITLE: の値を表示するときの拡大率(defaultフェイスに対する相対値)。
+絶対サイズではなく相対値にして、フォントサイズを変えても比率が保たれるようにする。")
+
+(defun my/org-enlarge-document-title (&rest _)
+  "org-document-title に高さだけを足す。
+custom側(:custom-face / custom-set-faces)で指定すると face 全体を差し替えることになり、
+テーマが与えている色や太さまで落ちてしまう。ここでは :height だけを上書きしたいので
+set-face-attribute を使う。ただしテーマを読み込むと属性は計算し直されて元に戻るため、
+enable-theme-functions からも呼んでテーマ切替(SPC t c)に追従させる。"
+  (when (facep 'org-document-title)
+    (set-face-attribute 'org-document-title nil
+                        :height my/org-document-title-height)))
+
+;; org読み込み前はfaceがまだ無いので、ここでは登録だけしておく(上のuse-packageの
+;; :configで初回適用し、以降はテーマを切り替えるたびに再適用される)。
+(add-hook 'enable-theme-functions #'my/org-enlarge-document-title)
+
+;; 見出し・TODO・タグ・日付・表・#+begin_srcブロックまで、org全体の見た目を今風にする。
+;; 以前は org-bullets(見出しの記号だけを差し替えるパッケージ)を使っていたが、
+;; 見た目を一新するため置き換えた。
+(use-package org-modern
   :straight t
-  :custom (org-bullets-bullet-list '("" "" "" "" "" "" "" "" "" ""))
-  :hook (org-mode . org-bullets-mode))
+  :after org
+  :hook (org-mode . org-modern-mode)
+  :custom
+  ;; 見出しの記号は、折り畳み状態が分かるインジケータ(▶/▼)にする。
+  ;; 従来のように記号を並べたいときは 'replace にして org-modern-replace-stars を使う。
+  (org-modern-star 'fold)
+  ;; TODOキーワードはラベル表示になり、色は org-modern-todo-faces から取られる
+  ;; (この経路では org-todo-keyword-faces は参照されない)。テーマに追従させたいので
+  ;; ここでも意味付きのfaceから継承する。既定の org-modern-todo が :inverse-video で
+  ;; 「文字色をラベルの背景色にする」作りなので、それに合わせて :inverse-video を付ける。
+  (org-modern-todo-faces
+   '(("TODO"     . (:inherit error :weight semibold :inverse-video t))
+     ("WIP"      . (:inherit warning :weight semibold :inverse-video t))
+     ("WAIT"     . (:inherit font-lock-comment-face :weight semibold :inverse-video t))
+     ("DONE"     . (:inherit success :weight semibold :inverse-video t))
+     ("CANCELED" . (:inherit shadow :weight semibold :inverse-video t))))
+  :config
+  ;; タグはラベルとして見出し直後に置きたいので、org側の桁揃え(空白詰め)を止める。
+  ;; 揃えたままだとラベルが右端へ飛んで読みにくくなる(org-modernのREADME推奨設定)。
+  (setq org-auto-align-tags nil)
+  (setq org-tags-column 0)
+  ;; 折り畳んだ見出しの省略記号(既定の "..." より収まりがよい)
+  (setq org-ellipsis "…"))
 
 ;;----------------------------------------------------------------------------------------------------
 ;; org-mode: クリップボードの画像を「貼り付け」る
