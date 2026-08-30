@@ -17,13 +17,13 @@ init.el と conf/ 以下の *.el は役割で分割している。新しい設�
 
 機能ごとに分割していて、init.el から次の順(依存順)で読み込まれる。
 
-| ファイル              | 役割                                                                                          |
-|-----------------------+-----------------------------------------------------------------------------------------------|
-| basic.el              | フォント・見た目・Dired基本設定・バックアップ設定・PATH同期など、Emacs本体の基礎設定。パッケージへの依存が薄い設定が中心。 |
-| package-manage.el     | straight.el/use-packageによる各種パッケージの導入・設定(evil、補完(corfu/orderless/prescient)、Magit、vterm、gptel等)。プログラミング言語以外の汎用パッケージはここに集約する。 |
-| language.el           | プログラミング言語・マークアップ/データ形式のメジャーモード、および言語サーバ(eglot)・Lintの設定。                    |
-| mylisp.el             | 既存パッケージに依存しない自作のユーティリティ関数(OS標準アプリで開く、Boxnote作成 等)。                             |
-| keybind-manage.el     | 全てのキーバインド定義。パッケージ設定側にキーバインドを書かず、ここに集約して一覧性を保つ。                           |
+| ファイル          | 役割                                                                                                                                                                            |
+|-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| basic.el          | フォント・見た目・Dired基本設定・バックアップ設定・PATH同期など、Emacs本体の基礎設定。パッケージへの依存が薄い設定が中心。                                                      |
+| package-manage.el | straight.el/use-packageによる各種パッケージの導入・設定(evil、補完(corfu/orderless/prescient)、Magit、vterm、gptel等)。プログラミング言語以外の汎用パッケージはここに集約する。 |
+| language.el       | プログラミング言語・マークアップ/データ形式のメジャーモード、および言語サーバ(eglot)・Lintの設定。                                                                              |
+| mylisp.el         | 既存パッケージに依存しない自作のユーティリティ関数(OS標準アプリで開く、Boxnote作成 等)。                                                                                        |
+| keybind-manage.el | 全てのキーバインド定義。パッケージ設定側にキーバインドを書かず、ここに集約して一覧性を保つ。                                                                                    |
 
 load順が重要になる場合がある(例: keybind-manage.el は package-manage.el で定義された関数・キーマップを参照するため最後に読み込む)。
 
@@ -40,15 +40,18 @@ load順が重要になる場合がある(例: keybind-manage.el は package-mana
 
 *** 必要なもの
 
-|    |                                     | 説明                                                                 |
-|----+-------------------------------------+-----------------------------------------------------------------------|
+|    |                                    | 説明                                                                                                                                                           |
+|----+------------------------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------|
 |  1 | Emacs (macOSは emacs-mac 推奨)     | macOSでは [[https://github.com/railwaycat/homebrew-emacsmacport][emacs-mac]] (Mitsuharu Macポート, 29.4系) を使用。stipple対応でindent-barsが綺麗に描画でき、日本語IME/描画も良好。詳細は下記「macOSのEmacsビルド」参照 |
-|  2 | [[https://github.com/miiton/Cica/releases][Cica]]                                | 等幅Nerdフォント                                                       |
-|  3 | Node.js / npm (fnmで管理)          | TypeScript/Python/Shell/CSSの言語サーバと prettier のインストールに必要。下記「その他の準備」参照 |
-|  4 | Go                                 | Go言語の編集・gofmt(goimports)・gopls(言語サーバ)に必要                |
-|  5 | CMake / libtool / Cコンパイラ      | vterm(ネイティブモジュール)のビルドに必要。macOSはXcode Command Line Toolsで揃う |
-|  6 | [[https://docs.claude.com/claude-code][Claude Code CLI]] (`claude`コマンド) | package-manage.el のvterm/gptel連携から呼び出す                        |
-|  7 | [[https://github.com/chrishrb/go-grip][go-grip]]                            | Markdownプレビュー(grip-mode)のレンダラ。language.el から呼び出す。未導入だと ~SPC m p~ が "The `go-grip' is not available in PATH environment" で失敗する |
+|  2 | [[https://github.com/miiton/Cica/releases][Cica]]                               | 等幅Nerdフォント                                                                                                                                               |
+|  3 | Node.js / npm (fnmで管理)          | TypeScript/Python/Shell/CSS/YAML(CloudFormation)の言語サーバと prettier のインストールに必要。下記「その他の準備」参照                                         |
+|  4 | Go                                 | Go言語の編集・gofmt(goimports)・gopls(言語サーバ)に必要                                                                                                        |
+|  5 | CMake / libtool / Cコンパイラ      | vterm(ネイティブモジュール)のビルドに必要。macOSはXcode Command Line Toolsで揃う                                                                               |
+|  6 | [[https://docs.claude.com/claude-code][Claude Code CLI]] (`claude`コマンド) | package-manage.el のvterm/gptel連携から呼び出す                                                                                                                |
+|  7 | [[https://github.com/chrishrb/go-grip][go-grip]]                            | Markdownプレビュー(grip-mode)のレンダラ。language.el から呼び出す。未導入だと ~SPC m p~ が "The `go-grip' is not available in PATH environment" で失敗する     |
+|  8 | Rust (rustup)                      | Rustの編集・rust-analyzer(言語サーバ)に必要。~brew install rustup~ → ~rustup default stable~                                                                   |
+|  9 | .NET SDK                           | Bicepの言語サーバ(Bicep.LangServer.dll)の実行に必要。~brew install dotnet~                                                                                     |
+| 10 | [[https://github.com/astral-sh/uv][uv]]                                 | Python製CLI(cfn-lint等)の導入に使う。~brew install uv~。導入先の ~~/.local/bin~ にPATHを通すこと(~uv tool update-shell~)                                       |
 
 
 *** macOSのEmacsビルド (emacs-mac)
@@ -109,7 +112,8 @@ rm -rf ~/.emacs.d/straight/build ~/.emacs.d/eln-cache
   続けて言語サーバとフォーマッタをまとめて入れる(Go/Rustは別経路なので下表を参照):
 
   #+begin_src sh
-  npm install -g prettier vscode-langservers-extracted typescript typescript-language-server pyright
+  npm install -g prettier vscode-langservers-extracted typescript typescript-language-server \
+    pyright bash-language-server yaml-language-server
   #+end_src
 
   npmのグローバルパッケージは *Nodeのバージョンごと* に入る。~fnm default~ で別バージョンへ
@@ -220,14 +224,28 @@ emacs --batch --eval '(let ((b (expand-file-name "~/.emacs.d/straight/build/")))
 
 Emacs30標準の eglot で、プログラミング言語ごとに言語サーバーを自動起動する設定を language.el に入れている。Emacs自体には同梱されていないため、使いたい言語の分だけ別途インストールする(未インストールでもEmacsの起動やそれ以外の言語の編集には影響しない)。
 
-| 言語       | 実行ファイル                 | インストール例                                                |
-|------------+-------------------------------+----------------------------------------------------------------|
-| Python     | pyright                      | ~npm install -g pyright~                                       |
-| TypeScript | typescript-language-server   | ~npm install -g typescript typescript-language-server~         |
-| Go         | gopls                        | ~go install golang.org/x/tools/gopls@latest~                   |
-| Rust       | rust-analyzer                | ~rustup component add rust-analyzer~ (要rustupでのRust導入)     |
-| Shell      | bash-language-server         | ~npm install -g bash-language-server~                          |
-| CSS/SCSS   | vscode-css-language-server   | ~npm install -g vscode-langservers-extracted~                  |
+| 言語           | 実行ファイル               | インストール例                                                                         |
+|----------------+----------------------------+----------------------------------------------------------------------------------------|
+| Python         | pyright                    | ~npm install -g pyright~                                                               |
+| TypeScript     | typescript-language-server | ~npm install -g typescript typescript-language-server~                                 |
+| Go             | gopls                      | ~go install golang.org/x/tools/gopls@latest~                                           |
+| Rust           | rust-analyzer              | ~brew install rustup~ → ~rustup default stable~ → ~rustup component add rust-analyzer~ |
+| Shell          | bash-language-server       | ~npm install -g bash-language-server~                                                  |
+| CSS/SCSS       | vscode-css-language-server | ~npm install -g vscode-langservers-extracted~                                          |
+| Terraform      | terraform-ls               | ~brew install hashicorp/tap/terraform-ls~                                              |
+| Bicep          | Bicep.LangServer.dll       | ~brew install dotnet~ のあとEmacsで ~M-x bicep-install-langserver~                     |
+| CloudFormation | yaml-language-server       | ~npm install -g yaml-language-server~                                                  |
+
+Go と Rust は導入先がPATHに載らないので、~.zshrc~ に下記を足しておく(前者は ~go install~ の
+出力先、後者は keg-only な rustup のshim置き場。どちらもEmacsからは exec-path-from-shell 経由で見える)。
+
+#+begin_src sh
+export PATH="$PATH:$(go env GOPATH)/bin"
+export PATH="$PATH:/opt/homebrew/opt/rustup/bin"
+#+end_src
+
+同様に、uv で入れたCLI(cfn-lint等)は ~~/.local/bin~ に入る。~uv tool update-shell~ を一度実行すると
+~.zshenv~ にPATHが追記される。
 
 (macOS注意) Emacs.appなどGUIから起動したEmacsは、ターミナルの ~.zshrc~ 等で設定したPATHを引き継がない。npmのグローバルインストール先や ~~/.go/bin~ 等に上記を入れてもeglotが見つけられないことがあるため、basic.el で [[https://github.com/purcell/exec-path-from-shell][exec-path-from-shell]] を使いシェルのPATHをEmacsに同期している(通常は追加設定不要)。
 
@@ -243,6 +261,20 @@ Emacs30標準の eglot で、プログラミング言語ごとに言語サーバ
 | Python                  | black        | ~pip install black~       |
 
 プロジェクトの ~node_modules/.bin~ にフォーマッタがあれば、グローバルより優先して使われる。
+
+*** Lint (flycheck)
+
+言語サーバとは別に、flycheck から外部のLinterを呼ぶ設定が language.el にある。
+
+| 対象           | 実行ファイル | インストール例             |
+|----------------+--------------+----------------------------|
+| CloudFormation | cfn-lint     | ~uv tool install cfn-lint~ |
+
+CloudFormationは、テンプレートの中身(~AWSTemplateFormatVersion~)を ~magic-mode-alist~ で
+見て cfn-json-mode / cfn-yaml-mode に振り分けている(拡張子が ~.json~ / ~.yaml~ のままで
+ファイル名からは判別できないため)。YAML側は eglot + yaml-language-server にも繋いでいて、
+スキーマ(SchemaStoreが案内するCloudFormationのJSON Schema)から補完とホバーが効く。
+cfn-lint はスキーマ検証では拾えないCFN固有の規則を見るので、両方を併用している。
 Goだけは従来どおり ~gofmt-before-save~ (goimports)に任せ、二重に整形が走らないよう apheleia の対象から外している。
 
 *** tree-sitter grammar (TypeScript/TSX/CSS)
@@ -260,10 +292,10 @@ Emacs29内蔵のtree-sitterモード(~tsx-ts-mode~ / ~typescript-ts-mode~)を使
 
 macOSでは2つのEmacsを共存させ、用途で使い分けている。設定はビルドごとに *git ブランチ* を分けている。
 
-| ビルド        | Homebrew                                | CLI(~emacs~)              | GUI                             | 設定ブランチ | indent 表示             |
-|---------------+-----------------------------------------+---------------------------+---------------------------------+--------------+-------------------------|
-| emacs-plus 30 | ~emacs-plus@30~ (tap d12frosted/emacs-plus) | ~brew link emacs-plus@30~   | ~/Applications/Emacs-plus30.app~  | ~main~         | highlight-indent-guides |
-| emacs-mac 29  | ~emacs-mac@29~                             | ~brew link emacs-mac@29~    | ~/Applications/Emacs-mac29.app~   | ~emacs-mac29~  | indent-bars(stipple)    |
+| ビルド        | Homebrew                                    | CLI(~emacs~)              | GUI                              | 設定ブランチ  | indent 表示             |
+|---------------+---------------------------------------------+---------------------------+----------------------------------+---------------+-------------------------|
+| emacs-plus 30 | ~emacs-plus@30~ (tap d12frosted/emacs-plus) | ~brew link emacs-plus@30~ | ~/Applications/Emacs-plus30.app~ | ~main~        | highlight-indent-guides |
+| emacs-mac 29  | ~emacs-mac@29~                              | ~brew link emacs-mac@29~  | ~/Applications/Emacs-mac29.app~  | ~emacs-mac29~ | indent-bars(stipple)    |
 
 両者とも native-comp 有効の Cocoa ビルドで、Cellar に併存できる。CLI の ~emacs~ はどちらか一方だけが
 ~/opt/homebrew/bin/emacs~ を張れる(リンクの排他)。旧構成(emacsformacosx = cask ~emacs-app~ +
