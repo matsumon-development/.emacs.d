@@ -787,40 +787,100 @@ Cコンパイラとgitが必要。実行後にEmacsを再起動すると各ts-mo
 
 
 ;;----------------------------------------------------------------------------------------------------
-;; Lint
+;; CloudFormation
 ;;----------------------------------------------------------------------------------------------------
+;; CFNのテンプレートは拡張子が .json / .yaml のままなので、ファイル名では判別できない。
+;; 中身の AWSTemplateFormatVersion を magic-mode-alist で見て専用モードに振り分ける
+;; (magic-mode-alist は auto-mode-alist より先に評価されるので、json-mode/yaml-mode より優先される)。
+;;
+;; 補完・ホバー・スキーマ検証は eglot + yaml-language-server に任せる。
+;;   npm install -g yaml-language-server
+;; リソース型やプロパティ名の候補は、SchemaStoreが案内するCFNのJSON Schemaから引く。
 
-;; Set up a mode for JSON based templates
+(defvar my/cfn-schema-url
+  "https://raw.githubusercontent.com/awslabs/goformation/master/schema/cloudformation.schema.json"
+  "CloudFormationテンプレートの補完・検証に使うJSON Schema。
+SchemaStoreのカタログが \"AWS CloudFormation\" として案内しているものと同じ。")
 
-(define-derived-mode cfn-json-mode js-mode
-  "CFN-JSON"
-  "Simple mode to edit CloudFormation template in JSON format."
+(defvar my/cfn-yaml-custom-tags
+  ["!Ref scalar"
+   "!Sub scalar" "!Sub sequence"
+   "!GetAtt scalar" "!GetAtt sequence"
+   "!GetAZs scalar"
+   "!ImportValue scalar" "!ImportValue mapping"
+   "!Join sequence"
+   "!Select scalar" "!Select sequence"
+   "!Split scalar" "!Split sequence"
+   "!Base64 scalar" "!Base64 mapping"
+   "!Cidr scalar" "!Cidr sequence"
+   "!FindInMap scalar" "!FindInMap sequence"
+   "!If scalar" "!If sequence"
+   "!And scalar" "!And sequence"
+   "!Or scalar" "!Or sequence"
+   "!Not scalar" "!Not sequence"
+   "!Equals scalar" "!Equals sequence"
+   "!Condition scalar"
+   "!Transform mapping"]
+  "CFNの組み込み関数の短縮形(!Ref など)。
+YAMLとしては未知のタグなので、これを教えないと yaml-language-server が
+テンプレート全体をパースエラーにしてしまう。")
+
+;; --- JSON形式のテンプレート ---
+(define-derived-mode cfn-json-mode js-mode "CFN-JSON"
+  "CloudFormationテンプレート(JSON)を編集するためのモード。"
   (setq js-indent-level 2))
 
 (add-to-list 'magic-mode-alist
              '("\\({\n *\\)? *[\"']AWSTemplateFormatVersion" . cfn-json-mode))
 
-;; Set up a mode for YAML based templates if yaml-mode is installed
-;; Get yaml-mode here https://github.com/yoshiki/yaml-mode
-(when (featurep 'yaml-mode)
+;; --- YAML形式のテンプレート ---
+;; 親の yaml-mode は遅延ロードだが、define-derived-mode は親が未ロードでも定義でき、
+;; 実際にこのモードへ入るときに yaml-mode が autoload される。
+;; (以前は featurep で囲っていたため、起動時は常に偽になりこのモード自体が
+;;  定義されていなかった。with-eval-after-load にすると今度は magic-mode-alist への
+;;  登録が「最初の1つ目のyamlを開いた後」になってしまうので、ここでは素直に定義する)
+(define-derived-mode cfn-yaml-mode yaml-mode "CFN-YAML"
+  "CloudFormationテンプレート(YAML)を編集するためのモード。")
 
-  (define-derived-mode cfn-yaml-mode yaml-mode
-    "CFN-YAML"
-    "Simple mode to edit CloudFormation template in YAML format.")
+(add-to-list 'magic-mode-alist
+             '("\\(---\n\\)?AWSTemplateFormatVersion:" . cfn-yaml-mode))
 
-  (add-to-list 'magic-mode-alist
-               '("\\(---\n\\)?AWSTemplateFormatVersion:" . cfn-yaml-mode)))
+;; eglotは登録が無いとモード名から languageId を作るため、放っておくと "cfn-yaml" になり
+;; yaml-language-server が反応しない。yaml として申告させる。
+(put 'cfn-yaml-mode 'eglot-language-id "yaml")
 
-;; Set up cfn-lint integration if flycheck is installed
-;; Get flycheck here https://www.flycheck.org/
-(when (featurep 'flycheck)
+(with-eval-after-load 'eglot
+  ;; yaml-mode と同じサーバに相乗りさせず、cfn-yaml-mode 専用のサーバとして起動する。
+  ;; 相乗りすると eglot が同じプロジェクト内の素のYAMLも同じサーバの管理下に置くため、
+  ;; 下の :schemas の指定(全ファイル対象)がCFN以外のYAMLにも適用されてしまう。
+  (add-to-list 'eglot-server-programs
+               '(cfn-yaml-mode . ("yaml-language-server" "--stdio"))))
+
+(defun my/cfn-yaml-setup-eglot ()
+  "このバッファのyaml-language-serverにCFNのスキーマと組み込み関数を教える。"
+  (setq-local eglot-workspace-configuration
+              `(:yaml (:schemas (,(intern my/cfn-schema-url) ["*"])
+                       :customTags ,my/cfn-yaml-custom-tags
+                       :validate t
+                       :completion t
+                       :hover t))))
+
+(add-hook 'cfn-yaml-mode-hook #'my/cfn-yaml-setup-eglot)
+;; 設定を先に用意してからサーバを起動したいので、eglot-ensure は後に積む
+;; (add-hookは既定で先頭に積むため、後から足したこちらが先に走る)。
+(add-hook 'cfn-yaml-mode-hook #'eglot-ensure)
+
+;; --- cfn-lint による指摘表示 ---
+;; スキーマ検証(eglot)では拾えないCFN固有の規則を見るので、eglotとは併用する。
+;; 別途インストールが必要: pip install cfn-lint
+;; flycheck も遅延ロードなので featurep では判定できない。ロード後に登録する。
+(with-eval-after-load 'flycheck
   (flycheck-define-checker cfn-lint
     "AWS CloudFormation linter using cfn-lint.
 
 Install cfn-lint first: pip install cfn-lint
 
-See `https://github.com/aws-cloudformation/cfn-python-lint'."
-
+See `https://github.com/aws-cloudformation/cfn-lint'."
     :command ("cfn-lint" "-f" "parseable" source)
     :error-patterns ((warning line-start (file-name) ":" line ":" column
                               ":" (one-or-more digit) ":" (one-or-more digit) ":"
@@ -829,10 +889,12 @@ See `https://github.com/aws-cloudformation/cfn-python-lint'."
                             ":" (one-or-more digit) ":" (one-or-more digit) ":"
                             (id "E" (one-or-more digit)) ":" (message) line-end))
     :modes (cfn-json-mode cfn-yaml-mode))
+  (add-to-list 'flycheck-checkers 'cfn-lint))
 
-  (add-to-list 'flycheck-checkers 'cfn-lint)
-  (add-hook 'cfn-json-mode-hook 'flycheck-mode)
-  (add-hook 'cfn-yaml-mode-hook 'flycheck-mode))
+;; flycheck-mode 自体は prog-mode/yaml-mode のフックで入る(conf/package-manage.el)。
+;; cfn-yaml-mode は yaml-mode の派生なので親のフックが走るが、cfn-json-mode は
+;; js-mode(prog-mode)派生でこちらも親のフックで入るため、個別のadd-hookは要らない。
+
 
 
 
