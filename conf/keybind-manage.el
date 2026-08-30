@@ -303,6 +303,13 @@
 (with-eval-after-load 'org
   (define-key org-mode-map (kbd "C-c w") #'my/org-image-set-width))
 
+;; org-modeのnormalステートの p は、クリップボードに画像があれば画像の貼り付けにする
+;; (無ければ通常のペースト。コマンド本体は conf/language.el)。
+;; evil-normal-state-map ではなく org-mode-map 側に置いて、org以外の p は変えない。
+(with-eval-after-load 'evil
+  (with-eval-after-load 'org
+    (evil-define-key 'normal org-mode-map "p" #'my/org-paste-dwim)))
+
 ;;-----------------------------------------------------------
 ;; vterm
 ;;-----------------------------------------------------------

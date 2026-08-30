@@ -165,6 +165,22 @@ C-u 付きで呼ぶと NAME を尋ねる(拡張子は不要)。"
       (org-display-inline-images nil t start (point)))
     (message "画像を保存: %s" (file-relative-name file dir))))
 
+;; クリップボードに画像があるときだけ、p(貼り付け)を画像の貼り付けにする。
+;; 画像をコピーした直後にそのまま p を押せるようにするのが目的で、
+;; テキストをコピーしているときは従来どおりのペーストに落ちる。
+
+(defun my/org-paste-dwim ()
+  "org-modeで、クリップボードに画像があればそれを貼り付け、無ければ通常のペースト。
+レジスタ指定(\"ap のように)があるときは、そのレジスタを貼りたいので常に通常のペースト。"
+  (interactive)
+  (if (and (derived-mode-p 'org-mode)
+           (not (bound-and-true-p evil-this-register))
+           (my/clipboard-image-p))
+      (my/org-insert-clipboard-image)
+    ;; カウント(3p)やレジスタは evil 側の interactive 指定で読ませたいので
+    ;; 引数は渡さず call-interactively する。
+    (call-interactively #'evil-paste-after)))
+
 ;;----------------------------------------------------------------------------------------------------
 ;; org-mode: カーソル位置の画像の表示サイズを変える
 ;;----------------------------------------------------------------------------------------------------

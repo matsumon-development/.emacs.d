@@ -109,3 +109,39 @@ FILE(絶対パス)を省略した場合は一時ファイルへ書き出す。
       ;; 消すのは make-temp-file が先に作った一時ファイルのときだけでよい。
       (when tempp (ignore-errors (delete-file file)))
       nil)))
+
+;; クリップボードに画像があるかどうかの判定。org-modeの p(貼り付け)のように、
+;; 「画像があるときだけ挙動を変えたい」場面から呼ぶ。
+;; osascriptの起動は50ms前後かかり、キー1打ごとに払うには重い。クリップボードに
+;; テキストが載っているときは画像を貼る用途ではないので、まずEmacs内で完結する
+;; テキスト判定で振り分け、テキストが無いときだけosascriptに問い合わせる。
+
+(defconst my/clipboard-has-image-applescript
+  (concat
+   "try\n"
+   "  set pngData to (the clipboard as «class PNGf»)\n"
+   "  return \"HASIMAGE\"\n"
+   "on error\n"
+   "  return \"NOIMAGE\"\n"
+   "end try")
+  "クリップボードに画像があるかだけを調べるAppleScript(ファイルは作らない)。")
+
+(defun my/clipboard-text-p ()
+  "クリップボードに空でないテキストが載っていれば non-nil を返す。"
+  (and (display-graphic-p)
+       (ignore-errors
+         (let ((str (gui-get-selection 'CLIPBOARD 'STRING)))
+           (and (stringp str) (not (string-empty-p str)))))))
+
+(defun my/clipboard-image-p ()
+  "macOSのクリップボードに画像が載っていれば non-nil を返す。
+テキストが載っている場合は(画像も同時に載っていても)テキスト優先で nil を返す。
+Excelのセルのように両方載せるアプリがあるが、その場合に貼りたいのは通常テキストのため。"
+  (and (eq system-type 'darwin)
+       (not (my/clipboard-text-p))
+       (string= "HASIMAGE"
+                (with-temp-buffer
+                  ;; osascriptは色空間の警告をstderrに出すことがあるので分離して捨てる
+                  (call-process "osascript" nil (list t nil) nil
+                                "-e" my/clipboard-has-image-applescript)
+                  (string-trim (buffer-string))))))
