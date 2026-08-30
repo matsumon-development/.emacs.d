@@ -84,7 +84,7 @@
   ;; どちらも all-the-icons 前提の拡張を読み込むため、nerd-icons統一の方針と合わない。
   ;; ファイルツリーのアイコンは treemacs-nerd-icons が担当する(下記)。
   (doom-themes-org-config)
-  (setq my-themes '(doom-dracula doom-wilmersdorf  doom-solarized-light))
+  (setq my-themes '(doom-wilmersdorf  doom-dracula doom-solarized-light))
   (setq curr-theme my-themes)
   (load-theme 'doom-wilmersdorf t)
   (defun theme-cycle ()
