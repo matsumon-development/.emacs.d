@@ -91,6 +91,10 @@ enable-theme-functions からも呼んでテーマ切替(SPC t c)に追従させ
   ;; 見出しの記号は、折り畳み状態が分かるインジケータ(▶/▼)にする。
   ;; 従来のように記号を並べたいときは 'replace にして org-modern-replace-stars を使う。
   (org-modern-star 'fold)
+  ;; 既定の3段目は ⯈/⯆ (U+2BC8/U+2BC6) だが、この設定のフォント(Cica)に
+  ;; 収録されておらず豆腐(□)になる。Cicaが持つ三角形だけで5段を組み直す。
+  (org-modern-fold-stars
+   '(("▶" . "▼") ("▷" . "▽") ("►" . "▼") ("▸" . "▾") ("▹" . "▿")))
   ;; TODOキーワードはラベル表示になり、色は org-modern-todo-faces から取られる
   ;; (この経路では org-todo-keyword-faces は参照されない)。テーマに追従させたいので
   ;; ここでも意味付きのfaceから継承する。既定の org-modern-todo が :inverse-video で
