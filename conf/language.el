@@ -558,9 +558,11 @@ tsv-mode が `csv-field-quotes' を nil にするが、rainbow-csv は
   :straight t
   :defer    t
   :hook     (dockerfile-mode . (lambda () (electric-indent-local-mode -1)))
+  ;; Containerfile は Podman/Buildah が使う名前で、中身はDockerfileと同じ書式。
+  ;; "Dockerfile\\'" は末尾一致なので prod.Dockerfile のような接頭辞付きも拾う。
   :mode (
          ("Dockerfile\\'" . dockerfile-mode)
-         ("\\.Dockerfile'" . dockerfile-mode)))
+         ("Containerfile\\'" . dockerfile-mode)))
 
 
 ;;            docker-compose
@@ -608,7 +610,10 @@ tsv-mode が `csv-field-quotes' を nil にするが、rainbow-csv は
 (defvar my/treesit-language-sources
   '((typescript "https://github.com/tree-sitter/tree-sitter-typescript" "master" "typescript/src")
     (tsx        "https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src")
-    (css        "https://github.com/tree-sitter/tree-sitter-css"))
+    (css        "https://github.com/tree-sitter/tree-sitter-css")
+    ;; bicep-ts-mode が想定するgrammarのバージョン(パッケージ側の宣言と同じ内容にして、
+    ;; 遅延ロード時の add-to-list が重複エントリを作らないようにする)。
+    (bicep      "https://github.com/tree-sitter-grammars/tree-sitter-bicep" "v1.1.0"))
   "`my/treesit-install-grammars' で取得するtree-sitterのgrammar一覧。")
 
 (defun my/treesit-install-grammars ()
@@ -630,7 +635,41 @@ Cコンパイラとgitが必要。実行後にEmacsを再起動すると各ts-mo
   (when (treesit-language-available-p 'tsx)
     (add-to-list 'auto-mode-alist '("\\.[jt]sx\\'" . tsx-ts-mode)))
   (when (treesit-language-available-p 'typescript)
-    (add-to-list 'auto-mode-alist '("\\.ts\\'" . typescript-ts-mode))))
+    (add-to-list 'auto-mode-alist '("\\.ts\\'" . typescript-ts-mode)))
+  ;; Bicepはts-mode以外の選択肢が無いので、grammarがあるときだけ割り当てる
+  (when (treesit-language-available-p 'bicep)
+    (add-to-list 'auto-mode-alist '("\\.bicep\\(param\\)?\\'" . bicep-ts-mode))))
+
+
+;;            Terraform / HCL
+;; terraform-mode は hcl-mode を土台にした派生モードで、hcl-mode も一緒に入る。
+;; .terraform.lock.hcl や Packer/Nomad の .hcl も素のままでは開けないので、
+;; ついでに hcl-mode を割り当てておく。
+;; 言語サーバ(terraform-ls)は eglot に登録済みなので、下のeglot節でフックするだけでよい。
+(use-package terraform-mode
+  :straight t
+  :defer    t
+  :mode (("\\.tf\\'"     . terraform-mode)
+         ("\\.tfvars\\'" . terraform-mode)))
+
+(use-package hcl-mode
+  :straight t
+  :defer    t
+  :mode ("\\.hcl\\'" . hcl-mode))
+
+
+;;            Bicep (Azureのデプロイ定義言語)
+;; tree-sitterベースのモードしか出回っていないため、grammar(bicep)が要る。
+;; grammarは my/treesit-language-sources に登録してあるので
+;; M-x my/treesit-install-grammars でまとめて導入できる。
+;; auto-mode-alistへの登録は、grammar未導入の環境で開いてもエラーにならないよう
+;; 下のtree-sitter節でgrammarの有無を見てから行う。
+;; 言語サーバはeglotに既定の登録が無く、パッケージ側が面倒を見る作りになっている。
+;; M-x bicep-install-langserver を一度実行すると ~/.emacs.d/.cache/bicep へ
+;; Bicep.LangServer.dll が落ち、以後 eglot 読み込み時に自動で登録される(dotnetが必要)。
+(use-package bicep-ts-mode
+  :straight t
+  :defer    t)
 
 
 ;;            C#
@@ -690,6 +729,9 @@ Cコンパイラとgitが必要。実行後にEmacsを再起動すると各ts-mo
 ;;   Rust      : rust-analyzer  (rustup component add rust-analyzer)
 ;;   Shell     : bash-language-server (npm install -g bash-language-server)
 ;;   CSS/SCSS  : vscode-css-language-server (npm install -g vscode-langservers-extracted)
+;;   Terraform : terraform-ls  (brew install hashicorp/tap/terraform-ls)
+;;   Bicep     : M-x bicep-install-langserver で導入(dotnetランタイムが必要)。
+;;               eglot-server-programs への登録はパッケージ側が行うので、ここでは書かない。
 (use-package eglot
   :defer t
   :hook ((python-mode        . eglot-ensure)
@@ -702,7 +744,9 @@ Cコンパイラとgitが必要。実行後にEmacsを再起動すると各ts-mo
          (scss-mode          . eglot-ensure)
          (go-mode            . eglot-ensure)
          (rust-mode          . eglot-ensure)
-         (sh-mode            . eglot-ensure)))
+         (sh-mode            . eglot-ensure)
+         (terraform-mode     . eglot-ensure)
+         (bicep-ts-mode      . eglot-ensure)))
 
 ;; lsp-mode/lsp-pyrightはeglotとの比較用に残しているが、自動起動フックは外している。
 ;; 試したい場合はバッファ内で (require 'lsp-pyright) や M-x lsp-deferred を手動実行する。
