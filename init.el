@@ -25,6 +25,10 @@
 (setq default-buffer-file-coding-system 'utf-8-unix)
 (set-default-coding-systems 'utf-8-unix)
 (prefer-coding-system 'utf-8-unix)
+;; Windowsの外部プロセスとのやり取りだけは、受け取り=UTF-8 / 渡し=Shift_JIS とする。
+;; (以前は mylisp.el の find-file-hook 内にあり、ファイルを開くたびに再設定していた)
+(when (eq system-type 'windows-nt)
+  (setq default-process-coding-system '(utf-8 . japanese-shift-jis)))
 ;;----------------------------------------------------------------------------------------------------
 ;; パッケージマネージャ
 ;;----------------------------------------------------------------------------------------------------

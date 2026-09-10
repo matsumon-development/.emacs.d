@@ -17,25 +17,80 @@
            "\"" filename "\""
            )))
 
-;;特定の拡張子を別アプリで開く
-(add-hook 'find-file-hook
-          '(lambda()
-             (let ((x 'nil) (buffer (buffer-name)))
-               (if (eq system-type 'windows-nt)
-                   (setq default-process-coding-system '(utf-8 . japanese-shift-jis)))
-               (unless (equal window-system 'nil)
-                 (dolist (ext '("docx" "pptx" "xlsx" "xlsm" "xls" "pdf" "boxnote" "drawio"))
-                   (when (equal ext (file-name-extension (buffer-file-name)))
-                     (setq x 't)))
-                 (cond ((eq x 't)
-                        ;; 外部アプリに投げた直後にこのバッファをkillするため、recentf本体の
-                        ;; find-file-hookが走る頃にはbuffer-file-nameが失われ履歴に残らない。
-                        ;; PDF・Office系も「最近開いたファイル」に出したいので明示的に登録する
-                        (when (fboundp 'recentf-add-file)
-                          (recentf-add-file (buffer-file-name)))
-                        (open-default-os-app (buffer-file-name))
-                        (previous-buffer)
-                        (kill-buffer buffer)))))))
+;;----------------------------------------------------------------------------------------
+;;                 特定の拡張子をOS標準アプリで開く
+;;----------------------------------------------------------------------------------------
+;; PDFやOffice系はEmacsで開いても読めないため、OS標準の関連付けアプリへ丸ごと渡す。
+;; 以前は find-file-hook で「一度開いてから即kill」していたが、そのフックが走るのは
+;; ファイルを全部バッファへ読み込み、normal-mode まで終わった後になる。
+;; (auto-mode-alist は .pdf/.docx/.xlsx 等を doc-view-mode-maybe に割り当てているので、
+;;  GUIでは doc-view の外部変換が走り出した直後に kill することになっていた)
+;; file-name-handler-alist で insert-file-contents を横取りすれば、中身を読む前に
+;; 抜けられるため、無駄な読み込みも doc-view の起動も発生しない。
+
+(defvar my/external-app-extensions
+  '("docx" "pptx" "xlsx" "xlsm" "xls" "pdf" "boxnote" "drawio")
+  "Emacsで開かず、OS標準アプリに渡すファイルの拡張子。")
+
+(defun my/external-app--build-regexp (extensions)
+  "EXTENSIONS のいずれかで終わるファイル名にマッチする正規表現を作る。
+`file-name-handler-alist' の照合時は `case-fold-search' の値が保証されないため、
+.PDF のような大文字表記も正規表現側で許容しておく。"
+  (concat "\\.\\(?:"
+          (mapconcat
+           (lambda (ext)
+             (mapconcat (lambda (c)
+                          (if (and (>= c ?a) (<= c ?z))
+                              (format "[%c%c]" c (upcase c))
+                            (regexp-quote (char-to-string c))))
+                        ext ""))
+           extensions "\\|")
+          "\\)\\'"))
+
+(defvar my/external-app-file-regexp
+  (my/external-app--build-regexp my/external-app-extensions)
+  "OS標準アプリに渡すファイル名にマッチする正規表現。")
+
+(defun my/external-app-file-p (filename)
+  "FILENAME が OS標準アプリで開く対象かどうかを返す。"
+  (and (stringp filename)
+       (string-match-p my/external-app-file-regexp filename)))
+
+(defun my/open-externally-file-handler (operation &rest args)
+  "対象拡張子のファイルを、Emacsが中身を読む前に横取りしてOS標準アプリで開く。
+それ以外の OPERATION は通常のファイル操作へ委譲する。"
+  (if (and (eq operation 'insert-file-contents)
+           (nth 1 args)          ;; VISIT非nil = ファイルを訪問する読み込みだけを対象にする
+           (display-graphic-p)   ;; ターミナル/daemonでは横取りしない(元の window-system 判定に相当)
+           (zerop (buffer-size))) ;; 既存バッファへの挿入やrevertは素通しする
+      (let ((file (expand-file-name (car args))))
+        ;; Emacsでは開かない=recentfのフックが走らないため、ここで履歴に登録する
+        (when (fboundp 'recentf-add-file)
+          (recentf-add-file file))
+        (open-default-os-app file)
+        (kill-buffer (current-buffer))
+        ;; find-file 側は insert-file-contents を file-error だけ捕まえる condition-case で
+        ;; 囲んでいる。user-error なら握り潰されず、空バッファを残さずコマンドを中断できる
+        (user-error "OS標準アプリで開きました: %s" (file-name-nondirectory file)))
+    ;; 委譲時は、この関数自身を一時的に無効化して無限再帰を防ぐ(ファイルハンドラの定石)
+    (let ((inhibit-file-name-handlers
+           (cons #'my/open-externally-file-handler
+                 (and (eq inhibit-file-name-operation operation)
+                      inhibit-file-name-handlers)))
+          (inhibit-file-name-operation operation))
+      (apply operation args))))
+
+(add-to-list 'file-name-handler-alist
+             (cons my/external-app-file-regexp #'my/open-externally-file-handler))
+
+;; サイズ確認は insert-file-contents より前(find-file-noselect 内)で走るので、
+;; 上のハンドラでは抑止できない。どうせEmacsで読まないファイルなので、
+;; 大きなpptx等で「本当に開くか」を毎回聞かれないようにする。
+(defun my/external-app--skip-size-check (orig size op-type filename &optional offer-raw)
+  "OS標準アプリに渡すファイルでは、サイズ確認プロンプトを出さない。"
+  (unless (my/external-app-file-p filename)
+    (funcall orig size op-type filename offer-raw)))
+(advice-add 'abort-if-file-too-large :around #'my/external-app--skip-size-check)
 
 
 (defun create-boxnote (filename)
