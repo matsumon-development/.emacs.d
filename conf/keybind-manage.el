@@ -352,6 +352,49 @@
 (which-key-add-key-based-replacements "SPC a q" "quit-window")
 (which-key-add-key-based-replacements "SPC a C-q" "kill-buffer-and-window")
 
+;;-----------------------------------------------------------
+;; gptel (エディタ一体型LLM)
+;; 設定本体は conf/ai-agent.el の第6章。ここではキーバインドのみ。
+;;-----------------------------------------------------------
+;; SPC a 直下は vterm版エージェント(claude/agy/bob)で埋まっているため、
+;; gptelは SPC a l 配下にまとめる(l = LLM)。
+;; leaderは「入口」だけに絞り、バッファに入ってからの送信・中断は
+;; composeバッファと同じ C-c C-c / C-c C-k に揃える(下の gptel-mode-map)。
+(which-key-add-key-based-replacements "SPC a l" "gptel(LLM)")
+(bind-key "SPC a l l" 'gptel evil-normal-state-map)
+(bind-key "SPC a l m" 'gptel-menu evil-normal-state-map)
+(bind-key "SPC a l a" 'gptel-add evil-normal-state-map)
+(bind-key "SPC a l f" 'gptel-add-file evil-normal-state-map)
+;; gptelバッファの外(コードバッファ等)から投げたリクエストを止める用。
+;; gptelバッファ内なら C-c C-k で足りる。
+(bind-key "SPC a l k" 'gptel-abort evil-normal-state-map)
+(which-key-add-key-based-replacements "SPC a l l" "chat-buffer")
+(which-key-add-key-based-replacements "SPC a l m" "menu")
+(which-key-add-key-based-replacements "SPC a l a" "add-context")
+(which-key-add-key-based-replacements "SPC a l f" "add-file-context")
+(which-key-add-key-based-replacements "SPC a l k" "abort")
+
+;; 選択範囲が前提のものはVisualステートに置く(gptel-rewriteはリージョン必須)。
+(bind-key "SPC a l r" 'gptel-rewrite evil-visual-state-map)
+(bind-key "SPC a l s" 'gptel-send evil-visual-state-map)
+(bind-key "SPC a l a" 'gptel-add evil-visual-state-map)
+(which-key-add-key-based-replacements "SPC a l r" "rewrite-region")
+(which-key-add-key-based-replacements "SPC a l s" "send-region")
+
+;; gptelチャットバッファ内のキーバインド。
+;;   C-c C-c … 送信
+;;   C-c C-k … 生成中のリクエストを中断
+;; gptel本体は C-c RET を送信に割り当てているが、composeバッファ(C-c C-c=送信)と
+;; 指を揃えたいので C-c C-c を主キーにする(本体の C-c RET もそのまま残る)。
+;; gptel-mode-map は遅延ロード後に定義されるため with-eval-after-load で包む。
+;; なお gptel-rewrite の結果オーバーレイ(C-c C-a 適用 / C-c C-k 破棄 / C-c C-r 再送信 等)は
+;; overlay の keymap プロパティで、Emacsのキー探索順がevil(emulation-mode-map-alists)より
+;; 先になるため、evilのままで効く。ここでの追加束縛は不要。
+(with-eval-after-load 'gptel
+  (evil-define-key '(normal insert) gptel-mode-map
+    (kbd "C-c C-c") #'gptel-send
+    (kbd "C-c C-k") #'gptel-abort))
+
 ;; 各AIエージェントのバッファ内キーバインド。
 ;;   q        … ウィンドウを閉じる(バッファ・プロセスは残す。normal-stateのみ)
 ;;   C-c C-w … 別フレームから元のフレームの分割ウィンドウへ戻す
