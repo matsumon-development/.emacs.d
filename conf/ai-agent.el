@@ -968,22 +968,95 @@ ai-composeバッファへ挿入する(vtermのプロンプトへ直接送るの�
   ;; 環境変数からAPIキーを取得
   (setq gptel-api-key (lambda () (getenv "ANTHROPIC_API_KEY")))
   :config
-  ;; Anthropic Claudeをデフォルトに設定
-  (setq gptel-backend (gptel-make-anthropic "Claude"
-                        :key gptel-api-key
-                        :stream t))
-  ;; 好みに応じて sonnet などを指定
-  (setq gptel-model 'claude-3-5-sonnet-latest)
+  ;; --- 利用可能なバックエンドだけを登録する --------------------------------
+  ;; gptel-menu が並べる候補は gptel--known-backends の中身で、gptel は既定では
+  ;; 何も登録しない。つまり「登録しない=メニューに出ない」なので、APIキーが無い
+  ;; ものはそもそも作らず、キーがあるものだけ認証を確かめてから登録する。
+  (defvar my/gptel-verify-auth t
+    "非nilなら、バックエンド登録前にモデル一覧APIで認証が通るか確かめる。
+確認は遅延ロードされたgptelの初回利用時に1回だけ走る(起動時間には影響しない)。")
 
-  ;; Google Gemini も併用登録する。
-  ;; gptel-make-gemini はバックエンドを登録するだけで、デフォルト(Claude)は上書きしない。
-  ;; gptel-menu の Model からいつでも Gemini(flash/pro)へ切り替えられる。
+  (defun my/gptel--env (name)
+    "環境変数NAMEの値を返す。未設定または空文字ならnilを返す。"
+    (let ((v (getenv name)))
+      (and v (not (string-empty-p v)) v)))
+
+  (defun my/gptel--pick-models (table names)
+    "gptel同梱のモデル表TABLEから、NAMESのモデル定義を能力情報ごと取り出す。
+:models にシンボルだけを渡すと、表に定義があっても能力情報(画像添付・ツール等)が
+空のまま登録されてしまう。表から (名前 . plist) の形で抜き出して渡す必要がある。
+表に無い名前はシンボルのまま返す(能力情報なしで登録される)。"
+    (mapcar (lambda (name) (or (assq name table) name)) names))
+
+  (defun my/gptel--auth-ok-p (url &optional headers)
+    "URLへGETして、認証エラーでなければ非nilを返す。
+判定にはcurlを使う。url.el の同期取得(url-retrieve-synchronously)は401を受け取ると
+ミニバッファでユーザ名・パスワードを聞きに行き、Emacsが操作待ちで固まってしまうため。
+URLとヘッダ(APIキー)はコマンドライン引数ではなく標準入力のcurl設定として渡し、
+psの出力に鍵が現れないようにする。
+400/401/403(キー無効・権限なし)だけを認証NGと見なす。通信不能・タイムアウト・
+サーバ側エラーは「判定不能」として非nilを返す。オフライン時に全バックエンドが
+メニューから消えて、gptelが何も使えなくなるのを避けるため。"
+    (let ((curl (if (stringp gptel-use-curl) gptel-use-curl (executable-find "curl"))))
+      (if (or (not my/gptel-verify-auth) (not curl))
+          t
+        (with-temp-buffer
+          (let* ((config (concat "silent\n"
+                                 "output = \"/dev/null\"\n"
+                                 "max-time = 5\n"
+                                 "write-out = \"%{http_code}\"\n"
+                                 (mapconcat (lambda (h)
+                                              (format "header = \"%s: %s\"\n" (car h) (cdr h)))
+                                            headers "")
+                                 (format "url = \"%s\"\n" url)))
+                 (status (call-process-region config nil curl nil t nil "--config" "-")))
+            (not (and (eq status 0)
+                      (member (string-trim (buffer-string)) '("400" "401" "403")))))))))
+
+  ;; --- Anthropic Claude ---
+  ;; gptel同梱のモデル表(gptel--anthropic-models)は日付付きID(claude-haiku-4-5-20251001)
+  ;; しか持たない。日付なしの現行IDを使うと常に最新スナップショットを指せるが、
+  ;; 表に無いシンボルは能力情報が空になり、画像添付・ツール・プロンプトキャッシュが
+  ;; 無効扱いになる。そこで同じ能力情報を付けて現行IDを表の先頭に足す。
+  (defvar my/gptel-claude-backend nil "登録できたClaudeバックエンド(未登録ならnil)。")
+  (let ((key (my/gptel--env "ANTHROPIC_API_KEY")))
+    (when (and key
+               (my/gptel--auth-ok-p "https://api.anthropic.com/v1/models"
+                                    `(("x-api-key" . ,key)
+                                      ("anthropic-version" . "2023-06-01"))))
+      (setq my/gptel-claude-backend
+            (gptel-make-anthropic "Claude"
+              :key gptel-api-key
+              :stream t
+              :models
+              (cons '(claude-haiku-4-5
+                      :description "高速・低コストのHaiku最新世代"
+                      :capabilities (media tool-use cache)
+                      :mime-types ("image/jpeg" "image/png" "image/gif"
+                                   "image/webp" "application/pdf")
+                      :context-window 200
+                      :input-cost 1
+                      :output-cost 5
+                      :cutoff-date "2025-02")
+                    gptel--anthropic-models)))))
+
+  ;; --- Google Gemini ---
   ;; APIキーは Claude と分けて GEMINI_API_KEY から取得する(Google AI Studio で発行)。
-  (gptel-make-gemini "Gemini"
-    :key (lambda () (getenv "GEMINI_API_KEY"))
-    :stream t
-    ;; 高速・低コストの flash と高性能の pro の両方を選べるようにしておく
-    :models '(gemini-2.5-flash gemini-2.5-pro))
+  ;; モデルは世代を固定しない -latest 別名を主にする(Googleが更新すれば追随する)。
+  ;; gemini-3.5-flash は現行世代の固定版として併記。いずれも gptel同梱のモデル表に
+  ;; 載っているので、能力情報(画像・ツール等)が付いた状態で選べる。
+  (defvar my/gptel-gemini-backend nil "登録できたGeminiバックエンド(未登録ならnil)。")
+  (let ((key (my/gptel--env "GEMINI_API_KEY")))
+    (when (and key
+               (my/gptel--auth-ok-p
+                (concat "https://generativelanguage.googleapis.com/v1beta/models?key=" key)))
+      (setq my/gptel-gemini-backend
+            (gptel-make-gemini "Gemini"
+              :key (lambda () (getenv "GEMINI_API_KEY"))
+              :stream t
+              :models (my/gptel--pick-models
+                       gptel--gemini-models
+                       '(gemini-flash-latest gemini-pro-latest gemini-3.5-flash))))))
 
   ;; 独自のOpenAI互換API(SSE対応)を併用登録する。
   ;; FQDN・パス・APIキーはすべて環境変数から取得し、git には値を残さない。
@@ -1038,8 +1111,10 @@ ai-composeバッファへ挿入する(vtermのプロンプトへ直接送るの�
           (message "MyLLM: %d 個のモデルを取得しました" (length models))
           models))))
 
-  ;; MY_LLM_HOST が無ければ登録自体をスキップ(未設定マシンでの読込エラー回避)。
-  (when (getenv "MY_LLM_HOST")
+  ;; 接続先・キーが揃っていなければ登録自体をスキップ(未設定マシンでの読込エラー回避)。
+  (when (and (my/gptel--env "MY_LLM_HOST")
+             (my/gptel--env "MY_LLM_ENDPOINT")
+             (my/gptel--env "MY_LLM_API_KEY"))
     (setq my/gptel-myllm-backend
           (gptel-make-openai "MyLLM"                       ; gptel-menu の表示名
             :host (getenv "MY_LLM_HOST")
@@ -1047,8 +1122,28 @@ ai-composeバッファへ挿入する(vtermのプロンプトへ直接送るの�
             :key (lambda () (getenv "MY_LLM_API_KEY"))     ; Authorization: Bearer を自動付与
             :stream t                                      ; SSE対応
             :models nil))                                  ; 一覧は下記で動的取得
-    ;; gptel初回ロード時に1回だけモデル一覧を取得。失敗してもgptelの読込は妨げない。
-    (ignore-errors (my/gptel-myllm-refresh-models)))
+    ;; gptel初回ロード時に1回だけモデル一覧を取得。この取得はそのまま認証確認を兼ねる
+    ;; ので、失敗したら登録を取り消してメニューから消す(gptelの読込自体は妨げない)。
+    (unless (ignore-errors (my/gptel-myllm-refresh-models))
+      (setf (gptel-get-backend "MyLLM") nil)
+      (setq my/gptel-myllm-backend nil)
+      (message "gptel: MyLLM に接続できなかったため、候補から外しました")))
+
+  ;; --- 既定のバックエンド/モデル ---
+  ;; 応答速度を優先し、登録できたものの中から Claude(Haiku) → Gemini(Flash) →
+  ;; MyLLM の順に選ぶ。じっくり考えさせたい時は gptel-menu の Model から
+  ;; Opus/Sonnet や Pro へ切り替える。
+  (cond
+   (my/gptel-claude-backend
+    (setq gptel-backend my/gptel-claude-backend
+          gptel-model 'claude-haiku-4-5))
+   (my/gptel-gemini-backend
+    (setq gptel-backend my/gptel-gemini-backend
+          gptel-model 'gemini-flash-latest))
+   (my/gptel-myllm-backend
+    (setq gptel-backend my/gptel-myllm-backend
+          gptel-model (car (gptel-backend-models my/gptel-myllm-backend))))
+   (t (message "gptel: 使えるAPIキーがありません(ANTHROPIC_API_KEY / GEMINI_API_KEY / MY_LLM_*)")))
 
   ;; gptelのバッファをポップアップではなく通常のバッファとして扱いやすくする設定
   (setq gptel-default-mode 'markdown-mode))
