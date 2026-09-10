@@ -199,6 +199,10 @@
     "Open the file(s) at point in Dired with the macOS default application."
     (interactive)
     (dolist (file (dired-get-marked-files))
+      ;; Emacsで開かない=find-file-hookが走らないため、recentfには何も記録されない。
+      ;; PDF・Office系をdiredから開いた場合も履歴に残るよう、ここで明示的に登録する
+      (when (fboundp 'recentf-add-file)
+        (recentf-add-file file))
       (call-process "open" nil 0 nil file)))
 
   ;; カーソル位置のファイルをFinderで表示(選択状態)する。ブラウザへのドラッグ&ドロップなど

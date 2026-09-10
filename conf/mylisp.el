@@ -28,6 +28,11 @@
                    (when (equal ext (file-name-extension (buffer-file-name)))
                      (setq x 't)))
                  (cond ((eq x 't)
+                        ;; 外部アプリに投げた直後にこのバッファをkillするため、recentf本体の
+                        ;; find-file-hookが走る頃にはbuffer-file-nameが失われ履歴に残らない。
+                        ;; PDF・Office系も「最近開いたファイル」に出したいので明示的に登録する
+                        (when (fboundp 'recentf-add-file)
+                          (recentf-add-file (buffer-file-name)))
                         (open-default-os-app (buffer-file-name))
                         (previous-buffer)
                         (kill-buffer buffer)))))))
