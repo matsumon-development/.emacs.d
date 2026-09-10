@@ -379,6 +379,10 @@
 (bind-key "SPC a l s" 'gptel-send evil-visual-state-map)
 (bind-key "SPC a l a" 'gptel-add evil-visual-state-map)
 (which-key-add-key-based-replacements "SPC a l r" "rewrite-region")
+;; SPC a l w: whisperで入れた書き起こしを校正する(本体は conf/ai-agent.el)。
+;; 素の rewrite(SPC a l r)と違い、指示を毎回打たずに済むよう専用コマンドにしている。
+(bind-key "SPC a l w" 'my/gptel-fix-transcript evil-visual-state-map)
+(which-key-add-key-based-replacements "SPC a l w" "fix-transcript")
 (which-key-add-key-based-replacements "SPC a l s" "send-region")
 
 ;; gptelチャットバッファ内のキーバインド。

@@ -1145,8 +1145,63 @@ psの出力に鍵が現れないようにする。
           gptel-model (car (gptel-backend-models my/gptel-myllm-backend))))
    (t (message "gptel: 使えるAPIキーがありません(ANTHROPIC_API_KEY / GEMINI_API_KEY / MY_LLM_*)")))
 
+  ;; --- よく使うsystem instructionを一覧に常設する ---
+  ;; gptel-menu の s(Set system message) に並ぶ候補は gptel-directives の中身。
+  ;; メニューでその場で書いた指示は gptel-system-prompt 変数に入るだけで一覧には
+  ;; 残らない(Emacs終了で消える)ため、常用するものはここに定義しておく。
+  ;; alist-get への setf にしているのは、文面を書き換えて再評価したときに
+  ;; 古い定義が残らず上書きされるようにするため(add-to-listだと重複して残る)。
+  ;; 既定(gptel-system-prompt)は gptel同梱の default(英語)のまま。切り替えは
+  ;; gptel-menu の s から行う。
+  (dolist (directive
+           '((japanese
+              . "あなたは有能なアシスタントです。回答は日本語で、簡潔に書いてください。")
+             (emacs-config
+              . "あなたはGNU Emacs(30以降)の設定に精通したアシスタントです。\
+回答は日本語で書き、Elispのコード内コメントも日本語にしてください。\
+既存の設定の分類・命名・思想を壊さない提案を優先してください。")
+             ;; whisper.cpp の書き起こしを整形する用(my/gptel-fix-transcript が使う)。
+             ;; 音声認識の誤りは「元の音」に引きずられるので、同音異義語・固有名詞・
+             ;; 句読点に絞って直させ、言い回しの改変や要約はさせない。
+             (transcript
+              . "あなたは日本語の音声認識(whisper.cpp)の書き起こしを校正するアシスタントです。\
+入力は音声からの自動書き起こしで、同音異義語の変換ミス、固有名詞の誤り、\
+句読点の欠落や打ち間違い、改行の不足を含みます。前後の文脈から正しい表記を推測して直してください。
+
+守ること:
+- 話者の言い回し・語順・文体はできるだけ変えない。要約や補足、意訳をしない。
+- 直すのは、明らかな変換ミス、句読点(、。)、改行位置、および言い直しやフィラー\
+(えー、あの、その、まあ 等)の削除に限る。
+- 判断に迷う固有名詞・専門用語は、書き換えずそのまま残す。
+- 英数字と記号は半角、日本語は全角にする。
+- 出力は整形後のテキストのみ。説明・前置き・コードブロックの囲みを付けない。")))
+    (setf (alist-get (car directive) gptel-directives) (cdr directive)))
+
   ;; gptelのバッファをポップアップではなく通常のバッファとして扱いやすくする設定
   (setq gptel-default-mode 'markdown-mode))
+
+;; --- 音声入力(whisper)の書き起こしを整形する ---------------------------
+;; whisperで入れたテキストは同音異義語の変換ミスと句読点の乱れが残るので、
+;; 選択範囲をgptelに投げて直させる。gptel-rewrite の仕組みに乗せているため、
+;; 結果はその場で置き換わらず、オーバーレイで差分を確認してから
+;; C-c C-a(適用) / C-c C-k(破棄) / C-c C-d(diff) を選べる。誤変換の直し過ぎを
+;; 弾けるので、この用途では確認できることが重要。
+;; system message は gptel-directives の transcript(上で定義)を使う。
+;; キーバインドは keybind-manage.el 側(Visualステート)。
+(defun my/gptel-fix-transcript ()
+  "選択範囲を、音声認識の書き起こしとして校正する。"
+  (interactive)
+  (unless (use-region-p)
+    (user-error "整形したい範囲を選択してから実行してください"))
+  ;; gptelは遅延ロードなので、ここで初めて読み込まれる(gptel-directives もこの時点で揃う)
+  (require 'gptel-rewrite)
+  (let ((gptel--rewrite-directive
+         (or (alist-get 'transcript gptel-directives) gptel--rewrite-directive)))
+    ;; gptel--suffix-rewrite は gptel-rewrite のメニュー実行部だが、関数として直接
+    ;; 呼べる。第1引数がその回だけの追加指示になる。
+    (gptel--suffix-rewrite
+     "文脈から誤変換を直し、句読点と改行を整えてください。")))
+
 
 ;; =====================================================================
 ;; 7. whisper 設定（音声入力・ローカルでの文字起こし）
