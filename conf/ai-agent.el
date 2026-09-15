@@ -1431,11 +1431,66 @@ normal/visualのマップを明示的に検索対象に加える。"
         (my/ai-command-lookup--choose entries)
       (my/ai-command-lookup--close my/ai-command-lookup-buffer))))
 
+(defvar my/ai-command-lookup-model-preference
+  `(("Claude" . claude-haiku-4-5)
+    ("Gemini" . gemini-flash-latest)
+    ("MyLLM"  . ,(getenv "MY_LLM_FAST_MODEL")))
+  "コマンド検索に使うバックエンドとモデルの優先順。
+各要素は (バックエンド名 . モデル指定) で、登録済みのバックエンドを先頭から探し、
+最初に見つかったものを使う。モデル指定は次の3通り:
+  シンボル … そのモデル(バックエンドが持っていなければ次の候補へ)
+  文字列   … モデル名がその正規表現に最初に一致したもの
+  nil      … そのバックエンドの先頭のモデル
+この用途は「コマンド名の見当をつける」だけなので、gptel-menu で選んでいる
+高性能モデル(Opus等)に引きずられないよう、ここで専用に固定する。
+会社のマシンのように独自エンドポイントしか使えない環境では、
+MyLLM のモデル一覧が機械ごとに違うため、環境変数 MY_LLM_FAST_MODEL で
+モデル名(または名前の一部)を渡す。未設定なら先頭のモデルを使う。
+文字列指定が一つも一致しなかった場合は、綴り間違いの可能性を知らせたうえで
+同じバックエンドの先頭モデルで続行する(次の候補へ流すと、避けたかった
+高性能モデルに落ちてしまうため)。")
+
+(defun my/ai-command-lookup--pick-backend ()
+  "`my/ai-command-lookup-model-preference' から、使える (バックエンド . モデル) を返す。
+どれも使えなければ nil を返し、その場合は gptel の既定にそのまま従う。"
+  (let (result)
+    (dolist (pref my/ai-command-lookup-model-preference)
+      (unless result
+        (when-let* ((backend (alist-get (car pref) gptel--known-backends nil nil #'equal)))
+          (let* ((models (gptel-backend-models backend))
+                 (want (cdr pref))
+                 (model (cond
+                         ((and want (symbolp want)) (car (memq want models)))
+                         ((stringp want)
+                          (seq-find (lambda (m) (string-match-p want (symbol-name m))) models)))))
+            (cond
+             (model (setq result (cons backend model)))
+             ;; 指定が無ければそのバックエンドの先頭モデルを使う
+             ((null want) (when models (setq result (cons backend (car models)))))
+             ;; 文字列指定(=環境変数由来)が一致しないのは、たいてい綴り間違いか
+             ;; 古いモデル名。黙って次の候補へ流すと gptel-menu で選んでいる
+             ;; 高性能モデルに落ちてしまい、避けたかった事態になる。
+             ;; 同じバックエンドの先頭モデルで続行し、直せるように知らせる。
+             ((stringp want)
+              (message "コマンド検索: %s に \"%s\" に一致するモデルがありません。%s を使います(候補: %s)"
+                       (gptel-backend-name backend) want (car models)
+                       (mapconcat #'symbol-name (seq-take models 8) " "))
+              (when models (setq result (cons backend (car models)))))
+             ;; シンボル指定は設定側で書いたもの。そのバックエンドが持っていない
+             ;; だけなので、次の候補へ進む(自宅/会社で使えるものが違うため)
+             (t nil))))))
+    result))
+
 (defun my/ai-command-lookup--search (query)
   "QUERYに合うコマンドの候補をLLMに挙げさせ、検証して一覧表示する。"
   (require 'gptel)
-  (message "コマンドを探しています...")
-  (gptel-request
+  ;; gptel-request に :backend / :model のキーワードは無いので、動的束縛で渡す。
+  ;; gptel-request は呼び出し時点の値を内部に取り込むため、非同期でも取り違えない。
+  (let* ((pick (my/ai-command-lookup--pick-backend))
+         (gptel-backend (if pick (car pick) gptel-backend))
+         (gptel-model (if pick (cdr pick) gptel-model)))
+    (message "コマンドを探しています... (%s)" gptel-model)
+    (gptel-request
       (format "やりたいこと: %s\n\n参考(この環境の自作コマンド):\n%s"
               query (my/ai-command-lookup--local-commands))
     :system my/ai-command-lookup-directive
@@ -1454,7 +1509,7 @@ normal/visualのマップを明示的に検索対象に加える。"
           (my/ai-command-lookup--present query response)))
        ((null response)
         (message "コマンド検索に失敗しました: %s"
-                 (or (plist-get info :error) (plist-get info :status) "応答なし")))))))
+                 (or (plist-get info :error) (plist-get info :status) "応答なし"))))))))
 
 (defvar my/ai-command-lookup-input-mode-map (make-sparse-keymap)
   "`my/ai-command-lookup-input-mode' のキーマップ。中身は keybind-manage.el で定義する。")
