@@ -93,6 +93,29 @@
 (advice-add 'abort-if-file-too-large :around #'my/external-app--skip-size-check)
 
 
+(defun my/quote-path-for-shell (path)
+  "PATHを、シェルへそのまま貼れる形にして返す。
+空白や記号を含むときだけシングルクォートで囲む(含まなければ裸のまま返す)。
+常に囲むとシェル以外へ貼ったときに余計な引用符が付くため、必要なときだけにする。
+パス中のシングルクォート自身は、いったん閉じてエスケープし開き直す、という
+POSIXの定石の形に展開する。"
+  (if (string-match-p "[^A-Za-z0-9_./~+-]" path)
+      (concat "'" (replace-regexp-in-string "'" "'\\''" path t t) "'")
+    path))
+
+(defun my/copy-buffer-file-path ()
+  "今のバッファが訪問しているファイルのフルパスをクリップボードへコピーする。
+ファイルを訪問していないバッファでは、代わりに `default-directory' を使う。
+kill-new は `select-enable-clipboard' が非nil(既定t)ならOSのクリップボードにも送る。"
+  (interactive)
+  (let ((path (or buffer-file-name default-directory)))
+    (unless path
+      (user-error "このバッファにはパスがありません"))
+    (let ((text (my/quote-path-for-shell (expand-file-name path))))
+      (kill-new text)
+      (message "コピーしました: %s" text))))
+
+
 (defun create-boxnote (filename)
   "Create Boxnote"
   (interactive "FNew Boxnote Name: ")

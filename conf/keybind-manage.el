@@ -238,21 +238,13 @@
 
 
 
-;;今開いているバッファのファイルをクリップボードに貼り付ける
-;;https://qiita.com/ShingoFukuyama/items/8f1d3342180d42ad9f78
-(bind-key "C-c C-c p"
-          '(lambda()
-             (interactive)
-             (let ((file-path buffer-file-name)
-                   (dir-path default-directory))
-               (cond (file-path
-                      (kill-new (expand-file-name file-path))
-                      (message "This file path is on the clipboard!"))
-                     (dir-path
-                      (kill-new (expand-file-name dir-path))
-                      (message "This directory path is on the clipboard!"))
-                     (t
-                      (error-message-string "Fail to get path name."))))))
+;; 今のバッファのファイルのフルパスをクリップボードへ(本体は conf/mylisp.el)。
+;; 以前は C-c C-c p だったが、C-c C-<英字> はメジャーモード用に予約された領域で、
+;; org/markdown/python/sh などは C-c C-c を自前で使うため、それらのバッファでは
+;; 発火しないうえに、モード側のコマンドが動いてしまっていた。
+;; ファイル系は SPC f 配下にまとまっているので、そちらへ移す(p = path)。
+(bind-key "SPC f p" 'my/copy-buffer-file-path evil-normal-state-map)
+(which-key-add-key-based-replacements "SPC f p" "copy-file-path")
 
 ;;-----------------------------------------------------------
 ;; ファイルツリー (treemacs)

@@ -217,27 +217,20 @@
 ;; 毎回数引数を打つ必要があり、うっかり素の w を押すと相対パスが入る。
 ;; パスを他のアプリへ渡す用途では絶対パスしか使わないので、専用のキーを用意する。
 ;; kill-new は select-enable-clipboard が非nil(既定t)ならOSのクリップボードにも送る。
-(defun my/dired--quote-path (path)
-  "PATHを、シェルへそのまま貼れる形にして返す。
-空白や記号を含むときだけシングルクォートで囲む(含まなければ裸のまま返す)。
-常に囲むとシェル以外へ貼ったときに余計な引用符が付くため、必要なときだけにする。
-パス中のシングルクォートは、POSIXの定石どおり '\\'' に展開して閉じ直す。"
-  (if (string-match-p "[^A-Za-z0-9_./~+-]" path)
-      (concat "'" (replace-regexp-in-string "'" "'\\''" path t t) "'")
-    path))
-
+;; パスのクォートは my/quote-path-for-shell(conf/mylisp.el)と共有する。mylisp.el は
+;; このファイルより後に読まれるが、呼ぶのは実行時なので問題ない。
 (defun my/dired-copy-full-path ()
   "Diredのカーソル行、またはマークしたファイルのフルパスをクリップボードへコピーする。
 複数ある場合は改行区切りで連結する。"
   (interactive)
   (let* ((files (or (dired-get-marked-files)
                     (user-error "コピーするファイルがありません")))
-         (text (mapconcat #'my/dired--quote-path files "\n")))
+         (text (mapconcat #'my/quote-path-for-shell files "\n")))
     (kill-new text)
     (message "コピーしました: %s"
              (if (cdr files)
                  (format "%d件 (先頭: %s)" (length files)
-                         (my/dired--quote-path (car files)))
+                         (my/quote-path-for-shell (car files)))
                text))))
 
 
