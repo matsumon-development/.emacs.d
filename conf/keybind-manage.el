@@ -117,7 +117,10 @@
 (bind-key "SPC !" 'shell-command evil-normal-state-map)
 
 ;;関数呼び出し
+;; Visualにも同じキーを置く。選択範囲を渡すコマンド(gptel-rewrite等)を
+;; 選択したまま呼べるようにするため(M-xでも呼べるが、指をNormalと揃える)。
 (bind-key "SPC SPC" 'execute-extended-command evil-normal-state-map)
+(bind-key "SPC SPC" 'execute-extended-command evil-visual-state-map)
 
 
 ;;tab-bar-mode
