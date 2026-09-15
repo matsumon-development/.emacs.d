@@ -238,6 +238,8 @@
 ;;                 Dired プレビュー
 ;;----------------------------------------------------------------------------------------
 ;; カーソル行のファイルを隣のウィンドウに表示する(Finderのプレビュー相当)。
+;; 分割の向きの判定は my/monitor-split-side(conf/mylisp.el)と共有する。mylisp.el は
+;; このファイルより後に読まれるが、呼ぶのは実行時なので問題ない。
 ;; 既定はONで、M-x my/dired-preview-mode (diredでは P) でいつでも切れる。
 ;; キーバインドは keybind-manage.el 側。
 
@@ -260,19 +262,6 @@
 
 (defconst my/dired-preview--placeholder-name " *dired preview*"
   "プレビュー対象外のときに表示するバッファ名。先頭の空白はバッファ一覧に出さないため。")
-
-(defun my/dired-preview--split-side ()
-  "プレビュー用ウィンドウを作る向きを返す。
-モニターが横長なら \\='right(左右に並べる)、縦長なら \\='below(上下に積む)。
-`frame-monitor-attributes' は現在のフレームが載っているモニターを見るので、
-マルチモニター環境でフレームを移すと、その都度その画面に合った向きになる。"
-  (let* ((attrs (frame-monitor-attributes))
-         (geom (or (alist-get 'workarea attrs) (alist-get 'geometry attrs)))
-         (width (nth 2 geom))
-         (height (nth 3 geom)))
-    (if (and (numberp width) (numberp height) (< width height))
-        'below
-      'right)))
 
 (defun my/dired-preview--previewable-p (file)
   "FILEがプレビュー対象かどうかを返す。"
@@ -319,7 +308,7 @@
   "BUFをプレビュー用ウィンドウに表示する。ウィンドウが無ければ作る。"
   (let ((win (my/dired-preview--get-window)))
     (unless (window-live-p win)
-      (setq win (split-window (selected-window) nil (my/dired-preview--split-side)))
+      (setq win (split-window (selected-window) nil (my/monitor-split-side)))
       (set-window-parameter win 'my/dired-preview t))
     (set-window-buffer win buf)
     win))

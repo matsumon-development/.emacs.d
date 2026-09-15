@@ -1205,6 +1205,15 @@ psの出力に鍵が現れないようにする。
   ;; インライン表示、表示幅の調整が既に用意してあり、そのまま使えるのが大きい。
   (setq gptel-default-mode 'org-mode)
 
+  ;; チャットバッファの出し方。横長モニターでは右に並べ、縦長では下に積む
+  ;; (判定は my/monitor-split-side / conf/mylisp.el。diredのプレビューと共通)。
+  ;; 既存のウィンドウを再利用してから新規分割を試すので、既に開いていれば
+  ;; そのウィンドウに移るだけで、分割が増え続けることはない。
+  ;; body-function は gptel の既定と同じく、表示したウィンドウを選択するため。
+  (setq gptel-display-buffer-action
+        `((display-buffer-reuse-window my/display-buffer-by-monitor-orientation)
+          (body-function . ,#'select-window)))
+
   ;; org/markdownのリンク先が画像なら、それもLLMへ送る。
   ;; これが無いとリンクは文字列としてしか渡らず、貼った画像について質問できない。
   ;; 送信にはモデル側のmedia対応が要る(Gemini・Claude Haikuとも対応済み)。

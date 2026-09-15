@@ -103,6 +103,27 @@ POSIXの定石の形に展開する。"
       (concat "'" (replace-regexp-in-string "'" "'\\''" path t t) "'")
     path))
 
+(defun my/monitor-split-side ()
+  "いまのフレームが載っているモニターの向きから、ウィンドウを作る向きを返す。
+横長なら \='right(左右に並べる)、縦長なら \='below(上下に積む)。
+`frame-monitor-attributes' は現在のフレームのモニターを見るので、
+マルチモニター環境でフレームを移せば、その画面に合った向きになる。"
+  (let* ((attrs (frame-monitor-attributes))
+         (geom (or (alist-get 'workarea attrs) (alist-get 'geometry attrs)))
+         (width (nth 2 geom))
+         (height (nth 3 geom)))
+    (if (and (numberp width) (numberp height) (< width height))
+        'below
+      'right)))
+
+(defun my/display-buffer-by-monitor-orientation (buffer alist)
+  "モニターの向きに合わせてウィンドウを作り、BUFFERを表示する。
+`display-buffer' のアクション関数として使う。横長モニターでは右に並べ、
+縦長モニターでは下に積む。"
+  (display-buffer-in-direction
+   buffer
+   (cons (cons 'direction (my/monitor-split-side)) alist)))
+
 (defun my/copy-buffer-file-path ()
   "今のバッファが訪問しているファイルのフルパスをクリップボードへコピーする。
 ファイルを訪問していないバッファでは、代わりに `default-directory' を使う。
