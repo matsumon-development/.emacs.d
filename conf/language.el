@@ -667,9 +667,22 @@ Cコンパイラとgitが必要。実行後にEmacsを再起動すると各ts-mo
 ;; 言語サーバはeglotに既定の登録が無く、パッケージ側が面倒を見る作りになっている。
 ;; M-x bicep-install-langserver を一度実行すると ~/.emacs.d/.cache/bicep へ
 ;; Bicep.LangServer.dll が落ち、以後 eglot 読み込み時に自動で登録される(dotnetが必要)。
-(use-package bicep-ts-mode
-  :straight t
-  :defer    t)
+;; このパッケージのautoloadsは、読み込み時に (treesit-ready-p 'bicep) を実行して
+;; auto-mode-alist への登録可否を判断する。treesit-ready-p は grammar が無いと
+;; 警告を出すため、grammar未導入のマシンでは起動のたびに *Warnings* が開く。
+;; auto-mode-alist への登録は上のtree-sitter節でgrammarの有無を見て行っており、
+;; ここでの判定は重複でしかないので、読み込みの間だけ警告を抑える。
+;; (.bicepを実際に開いたときの警告は有用なので、読み込み後にadviceを外す)
+(defun my/treesit-ready-p--quiet (orig language &optional quiet)
+  "`treesit-ready-p' を、警告を出さないモードで呼ぶためのadvice。"
+  (funcall orig language (or quiet t)))
+
+(advice-add 'treesit-ready-p :around #'my/treesit-ready-p--quiet)
+(unwind-protect
+    (use-package bicep-ts-mode
+      :straight t
+      :defer    t)
+  (advice-remove 'treesit-ready-p #'my/treesit-ready-p--quiet))
 
 
 ;;            C#
