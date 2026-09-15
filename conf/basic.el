@@ -235,6 +235,146 @@
 
 
 ;;----------------------------------------------------------------------------------------
+;;                 Dired プレビュー
+;;----------------------------------------------------------------------------------------
+;; カーソル行のファイルを隣のウィンドウに表示する(Finderのプレビュー相当)。
+;; 既定はONで、M-x my/dired-preview-mode (diredでは P) でいつでも切れる。
+;; キーバインドは keybind-manage.el 側。
+
+(defvar my/dired-preview-extensions
+  '("png" "jpg" "jpeg" "gif" "webp" "tif" "tiff" "svg" "heic" "bmp" "xpm" "xbm" "pbm")
+  "diredでプレビューするファイルの拡張子(小文字で書く)。
+ここに挙げたものだけを開くので、PDFやOffice系を外部アプリへ渡す設定
+(conf/mylisp.el)を誤って踏むことはない。増やすときは、その形式をEmacsが
+表示できるか(`image-type-available-p' など)を確かめること。")
+
+(defvar my/dired-preview-max-file-size (* 30 1024 1024)
+  "プレビューするファイルサイズの上限(バイト)。
+カーソルを動かすたびに読み込むので、巨大なファイルで固まらないよう制限する。")
+
+(defvar my/dired-preview--buffers nil
+  "プレビューのために開いたバッファ。自分で開いたものだけを後で片付けるため覚えておく。")
+
+(defvar my/dired-preview--last-file nil
+  "直近にプレビューしたファイル。同じ行に留まっている間の再読み込みを避ける。")
+
+(defconst my/dired-preview--placeholder-name " *dired preview*"
+  "プレビュー対象外のときに表示するバッファ名。先頭の空白はバッファ一覧に出さないため。")
+
+(defun my/dired-preview--split-side ()
+  "プレビュー用ウィンドウを作る向きを返す。
+モニターが横長なら \\='right(左右に並べる)、縦長なら \\='below(上下に積む)。
+`frame-monitor-attributes' は現在のフレームが載っているモニターを見るので、
+マルチモニター環境でフレームを移すと、その都度その画面に合った向きになる。"
+  (let* ((attrs (frame-monitor-attributes))
+         (geom (or (alist-get 'workarea attrs) (alist-get 'geometry attrs)))
+         (width (nth 2 geom))
+         (height (nth 3 geom)))
+    (if (and (numberp width) (numberp height) (< width height))
+        'below
+      'right)))
+
+(defun my/dired-preview--previewable-p (file)
+  "FILEがプレビュー対象かどうかを返す。"
+  (and file
+       (file-regular-p file)
+       (let ((ext (file-name-extension file)))
+         (and ext (member (downcase ext) my/dired-preview-extensions)))
+       (let ((size (file-attribute-size (file-attributes file))))
+         (and size (<= size my/dired-preview-max-file-size)))))
+
+(defun my/dired-preview--get-window ()
+  "プレビュー用ウィンドウを返す。無ければnil。"
+  (seq-find (lambda (win) (window-parameter win 'my/dired-preview))
+            (window-list (selected-frame) 'no-minibuf)))
+
+(defun my/dired-preview--placeholder-buffer (file)
+  "プレビュー対象外のときに見せるバッファを返す。
+対象外のたびにウィンドウを閉じると、行を移すだけで分割が出入りして落ち着かないので、
+ウィンドウは残したまま中身だけ差し替える。"
+  (let ((buf (get-buffer-create my/dired-preview--placeholder-name)))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert (if file
+                    (format "プレビュー対象外: %s\n" (file-name-nondirectory file))
+                  "プレビューできる行がありません\n")))
+      (setq buffer-read-only t))
+    buf))
+
+(defun my/dired-preview--buffer (file)
+  "FILEのプレビュー用バッファを返す。
+既に開いているバッファがあればそれを使い(片付けの対象にしない)、
+無ければ自分で開いて、あとで片付けられるよう覚えておく。"
+  (or (get-file-buffer file)
+      (progn
+        (require 'recentf nil t)
+        ;; カーソルを動かすたびに履歴へ積まれるのを防ぐ
+        (let* ((recentf-exclude '(".*"))
+               (buf (find-file-noselect file)))
+          (push buf my/dired-preview--buffers)
+          buf))))
+
+(defun my/dired-preview--show (buf)
+  "BUFをプレビュー用ウィンドウに表示する。ウィンドウが無ければ作る。"
+  (let ((win (my/dired-preview--get-window)))
+    (unless (window-live-p win)
+      (setq win (split-window (selected-window) nil (my/dired-preview--split-side)))
+      (set-window-parameter win 'my/dired-preview t))
+    (set-window-buffer win buf)
+    win))
+
+(defun my/dired-preview--cleanup ()
+  "プレビュー用ウィンドウを閉じ、このために開いたバッファを片付ける。"
+  (let ((win (my/dired-preview--get-window)))
+    (when (and (window-live-p win) (not (one-window-p)))
+      (delete-window win)))
+  (dolist (buf my/dired-preview--buffers)
+    (when (buffer-live-p buf) (kill-buffer buf)))
+  (setq my/dired-preview--buffers nil
+        my/dired-preview--last-file nil))
+
+(defun my/dired-preview--update ()
+  "カーソル行に応じてプレビューを更新する。`post-command-hook' から呼ぶ。"
+  (cond
+   ;; dired上にいる間だけ更新する
+   ((derived-mode-p 'dired-mode)
+    (let ((file (ignore-errors (dired-get-filename nil t))))
+      (unless (equal file my/dired-preview--last-file)
+        (setq my/dired-preview--last-file file)
+        (if (my/dired-preview--previewable-p file)
+            (my/dired-preview--show (my/dired-preview--buffer file))
+          (when (my/dired-preview--get-window)
+            (my/dired-preview--show (my/dired-preview--placeholder-buffer file)))))))
+   ;; diredから離れたら後片付けする。ただしプレビューのウィンドウを自分で選んで
+   ;; 画像をスクロールしている最中は、消してしまわないよう除外する
+   ((and (my/dired-preview--get-window)
+         (not (eq (selected-window) (my/dired-preview--get-window))))
+    (my/dired-preview--cleanup))))
+
+(define-minor-mode my/dired-preview-mode
+  "diredでカーソル行のファイルを隣のウィンドウにプレビューする。"
+  :global t
+  :lighter " DPrev"
+  (if my/dired-preview-mode
+      (add-hook 'post-command-hook #'my/dired-preview--update)
+    (remove-hook 'post-command-hook #'my/dired-preview--update)
+    (my/dired-preview--cleanup)))
+
+;; 既定はON。diredを開いた時点から効く。
+(my/dired-preview-mode 1)
+
+;; dired を閉じるときにプレビューも畳む。my/dired-quit-window は
+;; post-command-hook が走る前にウィンドウ構成を変えるので、ここで明示的に片付ける。
+;; (無名lambdaで足すと後から remove できないので、名前を付けておく)
+(defun my/dired-preview--before-quit (&rest _)
+  "dired を閉じる前にプレビューを片付ける。"
+  (when my/dired-preview-mode (my/dired-preview--cleanup)))
+
+(advice-add 'my/dired-quit-window :before #'my/dired-preview--before-quit)
+
+
+;;----------------------------------------------------------------------------------------
 ;;                 タブ
 ;;----------------------------------------------------------------------------------------
 (if (>= emacs-major-version 27)

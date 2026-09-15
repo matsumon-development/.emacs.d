@@ -50,6 +50,9 @@
   ;; フルパスをクリップボードへ。素の w は相対パス(dired-copy-filename-as-kill)なので、
   ;; 絶対パス専用に大文字を割り当てる(Yのdired-do-relsymlinkは使っていない)。
   (bind-key "Y" 'my/dired-copy-full-path dired-mode-map)
+  ;; プレビューの入切(既定はON。本体は conf/basic.el)。
+  ;; Pのdired-do-printは使っていないので置き換える。
+  (bind-key "P" 'my/dired-preview-mode dired-mode-map)
   (when (eq system-type 'darwin)
     (bind-key "O" 'dired-open-with-default-app dired-mode-map)
     (bind-key "F" 'dired-reveal-in-finder dired-mode-map))
