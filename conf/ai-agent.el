@@ -988,6 +988,18 @@ ai-composeバッファへ挿入する(vtermのプロンプトへ直接送るの�
 表に無い名前はシンボルのまま返す(能力情報なしで登録される)。"
     (mapcar (lambda (name) (or (assq name table) name)) names))
 
+  (defun my/gptel--add-model-props (models name props)
+    "MODELSのうちNAMEのモデル定義にPROPSを足したリストを返す。
+`my/gptel--pick-models' がgptel同梱の表からassqで取り出した定義は、gptel側と
+同じconsセルを共有している。直接書き換えるとgptel--gemini-models等を汚すので、
+そのモデルだけコピーして差し替える。PROPSは既存のplistより前に置くため、
+同じキーがあればこちらが優先される。"
+    (mapcar (lambda (m)
+              (if (and (consp m) (eq (car m) name))
+                  (cons (car m) (append props (cdr m)))
+                m))
+            models))
+
   (defun my/gptel--auth-ok-p (url &optional headers)
     "URLへGETして、認証エラーでなければ非nilを返す。
 判定にはcurlを使う。url.el の同期取得(url-retrieve-synchronously)は401を受け取ると
@@ -1054,9 +1066,20 @@ psの出力に鍵が現れないようにする。
             (gptel-make-gemini "Gemini"
               :key (lambda () (getenv "GEMINI_API_KEY"))
               :stream t
-              :models (my/gptel--pick-models
-                       gptel--gemini-models
-                       '(gemini-flash-latest gemini-pro-latest gemini-3.5-flash))))))
+              ;; pro だけ思考量を上げる(Geminiアプリの「強化版思考モード」に相当)。
+              ;; APIでは思考の深さはモデルIDではなく generationConfig.thinkingConfig で
+              ;; 決まる。gptelは includeThoughts しか送らないため thinkingLevel をここで補う。
+              ;; gptel--merge-plists は浅いマージで generationConfig ごと置き換わるので、
+              ;; includeThoughts も併記しておく必要がある。
+              ;; flash側は速度重視で選んでいるので既定(モデル任せ)のままにする。
+              :models (my/gptel--add-model-props
+                       (my/gptel--pick-models
+                        gptel--gemini-models
+                        '(gemini-flash-latest gemini-pro-latest gemini-3.5-flash))
+                       'gemini-pro-latest
+                       '(:request-params
+                         (:generationConfig
+                          (:thinkingConfig (:includeThoughts t :thinkingLevel "high")))))))))
 
   ;; 独自のOpenAI互換API(SSE対応)を併用登録する。
   ;; FQDN・パス・APIキーはすべて環境変数から取得し、git には値を残さない。
