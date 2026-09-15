@@ -71,6 +71,45 @@
 ;;                 エディタの見た目
 ;;----------------------------------------------------------------------------------------
 
+;; テーマが渡してくる「色がnil」を黙らせる。
+;; doom-themes の一部テーマは「色を指定しない」つもりでnilをそのまま書いている
+;; (例: doom-wilmersdorf と doom-solarized-light の mode-line は :foreground nil)。
+;; だがEmacsでの「未指定」は unspecified で、nilは不正な値なので、渡されるたびに
+;; 「Warning: setting attribute `:foreground' of face `mode-line': nil value is
+;;   invalid, use `unspecified' instead.」をミニバッファに出す。
+;; face specはフレームを作るたびに全face分再計算される(ツールチップやposframeの
+;; 子フレームでも起きる)ため、テーマ読込時だけでなく作業中の思わぬ場面で現れて、
+;; 直前の有用なメッセージを潰してしまう。
+;; Emacs自身もnilはunspecifiedと読み替えて描画しているので、渡す前に同じ読み替えを
+;; 済ませて警告だけ消す(見た目は変わらない)。theme-face側を書き換える手もあるが、
+;; テーマ切替(SPC t c)のたびに追随させる必要があるので、入口で直す方を選んだ。
+(defconst my/face-nil-invalid-attributes '(:foreground :distant-foreground :background)
+  "nilを渡すとEmacsが警告するface属性。
+色の3属性だけがこれに該当する。:box nil のようにnilが「その装飾を無効にする」意味を
+持つ属性まで読み替えると指定の意味が変わってしまうため、対象は明示的に絞る。")
+
+(defun my/set-face-attribute--nil-to-unspecified (args)
+  "色属性のnilをunspecifiedに読み替える `set-face-attribute' 用のadvice。
+ARGSは (FACE FRAME ATTR VALUE ATTR VALUE ...) という平坦なリストで渡ってくる。"
+  (let ((head (list (car args) (cadr args)))
+        (rest (cddr args))
+        (plist nil))
+    (while rest
+      (let ((attr (car rest))
+            (value (cadr rest)))
+        (when (and (null value)
+                   (memq attr my/face-nil-invalid-attributes))
+          (setq value 'unspecified))
+        (push attr plist)
+        (push value plist))
+      (setq rest (cddr rest)))
+    (append head (nreverse plist))))
+
+;; テーマの読込より先にadviceを入れる必要があるので、doom-themesの直前に置く。
+(advice-add 'set-face-attribute :filter-args
+            #'my/set-face-attribute--nil-to-unspecified)
+
+
 ;;テーマ
 (use-package doom-themes
   :straight t
