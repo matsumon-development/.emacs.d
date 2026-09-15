@@ -47,6 +47,9 @@
   ;; 現在diredで開いているフォルダをカレントディレクトリとして、vtermでターミナルを開く
   ;; (dired-do-touchを上書きするが、Finder代替の運用ではタッチよりターミナル起動を優先する)
   (bind-key "T" 'my/run-vterm-current-dir dired-mode-map)
+  ;; フルパスをクリップボードへ。素の w は相対パス(dired-copy-filename-as-kill)なので、
+  ;; 絶対パス専用に大文字を割り当てる(Yのdired-do-relsymlinkは使っていない)。
+  (bind-key "Y" 'my/dired-copy-full-path dired-mode-map)
   (when (eq system-type 'darwin)
     (bind-key "O" 'dired-open-with-default-app dired-mode-map)
     (bind-key "F" 'dired-reveal-in-finder dired-mode-map))
