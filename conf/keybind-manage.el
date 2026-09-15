@@ -386,6 +386,19 @@
 ;; 素の rewrite(SPC a l r)と違い、指示を毎回打たずに済むよう専用コマンドにしている。
 (bind-key "SPC a l w" 'my/gptel-fix-transcript evil-visual-state-map)
 (which-key-add-key-based-replacements "SPC a l w" "fix-transcript")
+
+;; SPC ?: コマンド名もキーもど忘れしたとき、やりたいことを日本語で入れて候補を出す
+;; (本体は conf/ai-agent.el / my/ai-command-lookup)。ヘルプ的な用途なので
+;; gptel配下ではなくトップレベルの ? に置き、思い出せないときすぐ押せるようにする。
+(bind-key "SPC ?" 'my/ai-command-lookup evil-normal-state-map)
+(which-key-add-key-based-replacements "SPC ?" "ai-command-lookup")
+
+;; 入力用子フレーム内のキー。打っている最中に押すので insert ステートでも効かせる。
+;; 候補一覧の子フレームは表示専用(選択はミニバッファの補完)なので、キーは要らない。
+(with-eval-after-load 'evil
+  (evil-define-key '(normal insert) my/ai-command-lookup-input-mode-map
+    (kbd "C-c C-c") #'my/ai-command-lookup-submit
+    (kbd "C-c C-k") #'my/ai-command-lookup-abort))
 (which-key-add-key-based-replacements "SPC a l s" "send-region")
 
 ;; gptelチャットバッファ内のキーバインド。

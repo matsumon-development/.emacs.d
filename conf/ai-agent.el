@@ -1226,6 +1226,295 @@ psの出力に鍵が現れないようにする。
      "文脈から誤変換を直し、句読点と改行を整えてください。")))
 
 
+;; --- やりたいことからコマンドを探す -------------------------------------
+;; コマンド名もキーバインドもど忘れしたとき用。やりたいことを日本語で入力すると、
+;; gptelに候補を挙げさせて一覧にする。
+;; ただし表示内容をLLMの出力任せにはしない。LLMは存在しないコマンド名を自信たっぷりに
+;; 返すため、名前だけを受け取って commandp で実在を確認し、キーバインドとdocstringは
+;; Emacs側から引き直す。LLMの役割は「名前の見当をつける」ことに限定する。
+
+(defvar my/ai-command-lookup-directive
+  "あなたはGNU Emacs(30以降)に精通したアシスタントです。
+ユーザーがやりたいことを日本語で述べるので、それを実現するEmacsのコマンドの候補を挙げてください。
+
+出力形式(厳守):
+- 1行に1候補、「コマンド名」とタブ文字と「そのコマンドを選ぶ理由(40字以内の日本語)」の形式で書く。
+- コマンド名はシンボル名だけを書く(例: query-replace-regexp)。M-xや括弧、説明を付けない。
+- 確信度の高い順に、最大8件。
+- 前置き・見出し・箇条書き記号・コードブロックの囲みを付けない。
+- 該当しそうなものが無ければ、何も出力しない。"
+  "`my/ai-command-lookup' が使うsystem message。")
+
+(defvar my/ai-command-lookup-buffer " *AI Command Lookup*"
+  "候補一覧を表示するバッファ名。
+先頭の空白は意図的。空白始まりのバッファはバッファ一覧(C-x b や list-buffers)に
+出ないため、使い捨てのUI用バッファが利用者の目に触れない。
+子フレームごと消す(delete-frame)とmacOSでアプリのキーウィンドウが再評価され、
+Emacsが最小化されたように見えるので、フレームもバッファも消さずに再利用する。")
+
+(defvar my/ai-command-lookup--origin nil
+  "呼び出し元のバッファ。キーバインドの解決に使う。")
+
+;; 【macOSでの子フレームの扱いについて】
+;; 子フレームを delete-frame すると、macOSではEmacs.app自体のキーウィンドウが
+;; 再評価され、一瞬最小化されたように見える。フォーカスを持っていなくても起きる。
+;; そのため、このUIでは子フレームを一度も削除せず `posframe-hide' で隠して使い回す。
+;; (バッファ名を空白始まりにしてあるので、残ってもバッファ一覧には出ない)
+;; 一方、子フレームへフォーカスを与えること自体は問題にならない。
+;;   入力   … 子フレーム(フォーカスあり。日本語入力もそのまま使える)
+;;   一覧   … 子フレーム(表示専用。フォーカスは与えない)
+;;   選択   … ミニバッファの補完(completing-read。キーバインドを注釈表示できる)
+
+(defvar my/ai-command-lookup-input-buffer " *AI Command Lookup Input*"
+  "やりたいことを入力するバッファ名。先頭の空白の意図は `my/ai-command-lookup-buffer' と同じ。")
+
+(defvar my/ai-command-lookup-input-in-posframe t
+  "非nilなら、やりたいことの入力を子フレームで受ける。
+nilにするとミニバッファ(read-string)で受ける。子フレームでの日本語入力が
+うまくいかない環境のための逃げ道。")
+
+(defvar my/ai-command-lookup--parent-frame nil
+  "呼び出し元のフレーム。入力用子フレームを閉じた後にフォーカスを戻すため覚えておく。")
+
+(defun my/ai-command-lookup--posframe-usable-p ()
+  "posframe(子フレーム)で表示できる状況かを返す。
+ターミナルEmacsやbatchでは子フレームを作れないので、通常のウィンドウへ退避する。"
+  (and (display-graphic-p)
+       (require 'posframe nil t)
+       (posframe-workable-p)))
+
+(defun my/ai-command-lookup--show (buffer &rest args)
+  "BUFFERを子フレームで表示する。ARGSは `posframe-show' へそのまま渡す。
+子フレームを作れない環境では通常のウィンドウで表示する。"
+  (if (not (my/ai-command-lookup--posframe-usable-p))
+      (display-buffer buffer)
+    (apply #'posframe-show buffer
+           :poshandler #'posframe-poshandler-frame-center
+           :border-width 2
+           :border-color (or (face-foreground 'shadow nil t) "gray50")
+           :respect-header-line t
+           args)))
+
+(defun my/ai-command-lookup--close (buffer)
+  "BUFFERのポップアップを閉じる。
+子フレームは `posframe-hide' で隠すだけにして、delete-frame は呼ばない。
+macOSでは子フレームを削除するとEmacs.app自体のキーウィンドウが再評価され、
+一瞬最小化されたように見えるため。バッファ名が空白始まりでバッファ一覧に
+出ないので、隠したまま残しておいても利用者の邪魔にはならない。
+通常ウィンドウで出していた場合(ターミナル等)は、こちらは畳んでkillする。"
+  (when (get-buffer buffer)
+    (if (and (fboundp 'posframe-hide)
+             (buffer-local-value 'posframe--frame (get-buffer buffer)))
+        (posframe-hide buffer)
+      (when-let* ((win (get-buffer-window buffer t)))
+        (quit-window nil win))
+      (kill-buffer buffer))))
+
+(defun my/ai-command-lookup--local-commands ()
+  "この設定で定義した my/ 系コマンドの一覧を文字列で返す。
+自作コマンドはLLMが知りようがないので、プロンプトに同梱して候補に挙げられるようにする。"
+  (let (lines)
+    (mapatoms
+     (lambda (sym)
+       (when (and (commandp sym) (string-prefix-p "my/" (symbol-name sym)))
+         (push (format "%s\t%s" sym
+                       (or (car (split-string (or (ignore-errors (documentation sym)) "")
+                                              "\n"))
+                           ""))
+               lines))))
+    (mapconcat #'identity (sort lines #'string<) "\n")))
+
+(defun my/ai-command-lookup--keys (sym)
+  "SYMに割り当てられたキーの説明を返す。無ければnil。
+evilのステートごとのキーマップは現在のステートでしか有効にならないため、
+normal/visualのマップを明示的に検索対象に加える。"
+  (let* ((maps (delq nil (list (and (boundp 'evil-normal-state-map) evil-normal-state-map)
+                               (and (boundp 'evil-visual-state-map) evil-visual-state-map))))
+         (keys (append (and maps (where-is-internal sym maps))
+                       (where-is-internal sym)))
+         ;; メニューバー等の擬似キーは「キーバインド」として見せても意味がないので落とす
+         (keys (seq-remove (lambda (k)
+                             (and (> (length k) 0)
+                                  (memq (aref k 0) '(menu-bar tool-bar remap))))
+                           keys)))
+    (when keys
+      (mapconcat #'key-description (seq-take (delete-dups keys) 3) " / "))))
+
+(defun my/ai-command-lookup--parse-line (line)
+  "LLMの出力1行をplistに変換する。コマンド名が取れなければnil。"
+  (when (string-match "\\`\\([^ \t|]+\\)[ \t|]*\\(.*\\)\\'" line)
+    (let* ((name (match-string 1 line))
+           (reason (string-trim (match-string 2 line)))
+           (sym (intern-soft name)))
+      (list :name name
+            :reason reason
+            :symbol (and sym (commandp sym) sym)
+            ;; 実在しない/コマンドではない場合も、黙って捨てずに状態として持つ
+            :status (cond ((and sym (commandp sym)) 'command)
+                          ((and sym (fboundp sym)) 'function)
+                          (t 'missing))
+            :keys (and sym (commandp sym) (my/ai-command-lookup--keys sym))
+            :doc (and sym (fboundp sym)
+                      (car (split-string (or (ignore-errors (documentation sym)) "")
+                                         "\n")))))))
+
+(defvar my/ai-command-lookup-mode-map (make-sparse-keymap)
+  "`my/ai-command-lookup-mode' のキーマップ。子フレームは表示専用なので通常は使わない。")
+
+(define-derived-mode my/ai-command-lookup-mode special-mode "AI-Cmd"
+  "やりたいことから探したコマンド候補を表示するモード。"
+  (setq header-line-format " 下のミニバッファで選択 / C-g で閉じる"))
+
+(defun my/ai-command-lookup--render (query entries)
+  "ENTRIESを一覧バッファへ描画する。QUERYは見出し用。"
+  (with-current-buffer (get-buffer-create my/ai-command-lookup-buffer)
+    (let ((inhibit-read-only t))
+      (erase-buffer)
+      (my/ai-command-lookup-mode)
+      (insert (format "やりたいこと: %s\n\n" query))
+      (if (null entries)
+          (insert "候補が見つかりませんでした。\n")
+        (dolist (e entries)
+          (pcase (plist-get e :status)
+            ('command
+             (insert (format "%-36s %s\n" (plist-get e :name)
+                             (or (plist-get e :keys) "(キー未割当)")))
+             (insert (format "    %s\n" (plist-get e :reason)))
+             (when (and (plist-get e :doc) (not (string-empty-p (plist-get e :doc))))
+               (insert (format "    %s\n" (plist-get e :doc)))))
+            ('function
+             (insert (format "%-36s (コマンドではありません)\n" (plist-get e :name)))
+             (insert (format "    %s\n" (plist-get e :reason))))
+            ('missing
+             (insert (format "%-36s (このEmacsには存在しません)\n" (plist-get e :name)))
+             (insert (format "    %s\n" (plist-get e :reason)))))
+          (insert "\n")))
+      (goto-char (point-min)))
+    (current-buffer)))
+
+(defun my/ai-command-lookup--choose (entries)
+  "ENTRIESの中から実行するコマンドをミニバッファで選ばせ、あれば実行する。
+一覧は子フレームに出ているので、ここでは名前だけを補完対象にする。"
+  (let* ((runnable (seq-filter (lambda (e) (plist-get e :symbol)) entries))
+         (names (mapcar (lambda (e) (symbol-name (plist-get e :symbol))) runnable))
+         ;; キーバインドを注釈として出し、一覧を目で追わなくても選べるようにする
+         (completion-extra-properties
+          (list :annotation-function
+                (lambda (cand)
+                  (when-let* ((e (seq-find (lambda (e) (equal cand (symbol-name (plist-get e :symbol))))
+                                           runnable))
+                              (keys (plist-get e :keys)))
+                    (concat "  " keys))))))
+    (if (null names)
+        (progn (message "実行できる候補がありませんでした (何かキーを押すと閉じます)")
+               (read-key))
+      ;; C-gで閉じたときも必ず後始末したいので unwind-protect で囲む
+      ;; 後始末は呼び出し元(--present)の unwind-protect に任せる。
+      ;; ここで閉じると、選んだコマンドを実行する前に一覧が消えてしまう。
+      (let ((choice (completing-read "実行するコマンド: " names nil t)))
+        (when (and choice (not (string-empty-p choice)))
+          (call-interactively (intern choice)))))))
+
+(defun my/ai-command-lookup--present (query response)
+  "RESPONSEを検証して一覧を出し、実行するコマンドを選ばせる。"
+  (let ((entries (delq nil (mapcar #'my/ai-command-lookup--parse-line
+                                   (split-string (or response "") "\n" t "[ \t]+")))))
+    (my/ai-command-lookup--render query entries)
+    ;; 一覧は読むだけなので、フォーカスもカーソルも与えない
+    (my/ai-command-lookup--show my/ai-command-lookup-buffer
+                                :width 92 :min-height 6 :max-height 30
+                                :cursor nil :accept-focus nil)
+    ;; 表示を先に確定させてから選択に入る(子フレームが出る前に
+    ;; ミニバッファを開くと、一覧が見えないまま選ばされる)
+    (redisplay t)
+    (unwind-protect
+        (my/ai-command-lookup--choose entries)
+      (my/ai-command-lookup--close my/ai-command-lookup-buffer))))
+
+(defun my/ai-command-lookup--search (query)
+  "QUERYに合うコマンドの候補をLLMに挙げさせ、検証して一覧表示する。"
+  (require 'gptel)
+  (message "コマンドを探しています...")
+  (gptel-request
+      (format "やりたいこと: %s\n\n参考(この環境の自作コマンド):\n%s"
+              query (my/ai-command-lookup--local-commands))
+    :system my/ai-command-lookup-directive
+    :stream nil
+    ;; gptelのコールバックは本文(文字列)以外に、完了合図のt、エラー時のnil、
+    ;; 思考内容の (reasoning . ...) も渡してくる。本文以外は黙って無視し、
+    ;; nil(=エラー)のときだけ知らせる。
+    :callback
+    (lambda (response info)
+      (cond
+       ((stringp response)
+        ;; キーバインドは呼び出し元バッファのキーマップで解決する
+        (with-current-buffer (if (buffer-live-p my/ai-command-lookup--origin)
+                                 my/ai-command-lookup--origin
+                               (current-buffer))
+          (my/ai-command-lookup--present query response)))
+       ((null response)
+        (message "コマンド検索に失敗しました: %s"
+                 (or (plist-get info :error) (plist-get info :status) "応答なし")))))))
+
+(defvar my/ai-command-lookup-input-mode-map (make-sparse-keymap)
+  "`my/ai-command-lookup-input-mode' のキーマップ。中身は keybind-manage.el で定義する。")
+
+(define-derived-mode my/ai-command-lookup-input-mode fundamental-mode "AI-Cmd-Input"
+  "やりたいことを入力するモード。"
+  ;; 入力欄の中身がそのままクエリになるので、操作説明は本文ではなくヘッダラインに置く
+  (setq header-line-format " やりたいこと: C-c C-c で検索 / C-c C-k で中止"))
+
+(defun my/ai-command-lookup--close-input ()
+  "入力用子フレームを閉じ、フォーカスを呼び出し元フレームへ戻す。
+先に親フレームへフォーカスを戻してから隠す。フォーカスを持ったままの
+子フレームを隠すと、どこにも入力が届かない状態が一瞬できてしまうため。"
+  (when (frame-live-p my/ai-command-lookup--parent-frame)
+    (select-frame-set-input-focus my/ai-command-lookup--parent-frame))
+  (my/ai-command-lookup--close my/ai-command-lookup-input-buffer))
+
+(defun my/ai-command-lookup-submit ()
+  "入力欄の内容でコマンドを検索する。"
+  (interactive)
+  (let ((query (string-trim (buffer-substring-no-properties (point-min) (point-max)))))
+    (my/ai-command-lookup--close-input)
+    (if (string-empty-p query)
+        (message "やりたいことが空です")
+      (my/ai-command-lookup--search query))))
+
+(defun my/ai-command-lookup-abort ()
+  "入力欄を閉じて中止する。"
+  (interactive)
+  (my/ai-command-lookup--close-input))
+
+(defun my/ai-command-lookup ()
+  "やりたいことを入力して、それらしいEmacsコマンドの候補を出す。"
+  (interactive)
+  (setq my/ai-command-lookup--origin (current-buffer)
+        my/ai-command-lookup--parent-frame (selected-frame))
+  (if (not (and my/ai-command-lookup-input-in-posframe
+                (my/ai-command-lookup--posframe-usable-p)))
+      ;; 子フレームを使わない設定・使えない環境ではミニバッファで受ける
+      (let ((query (string-trim (read-string "やりたいこと: "))))
+        (if (string-empty-p query)
+            (message "やりたいことが空です")
+          (my/ai-command-lookup--search query)))
+    (let ((buf (get-buffer-create my/ai-command-lookup-input-buffer)))
+      (with-current-buffer buf
+        (let ((inhibit-read-only t)) (erase-buffer))
+        (my/ai-command-lookup-input-mode))
+      ;; 高さ1だとヘッダラインのガイドと入力行が重なって読めない。
+      ;; 複数行のやりたいことも書けるよう、常に8行ぶん開けておく
+      (my/ai-command-lookup--show buf :width 64 :min-height 8 :max-height 8
+                                  :cursor 'box :accept-focus t)
+      (when-let* ((frame (buffer-local-value 'posframe--frame (get-buffer buf))))
+        (when (frame-live-p frame)
+          (select-frame-set-input-focus frame)))
+      ;; フォーカスが移った後で、すぐ打ち始められるようにしておく
+      (with-current-buffer buf
+        (goto-char (point-max))
+        (when (fboundp 'evil-insert-state) (evil-insert-state))))))
+
+
 ;; =====================================================================
 ;; 7. whisper 設定（音声入力・ローカルでの文字起こし）
 ;; =====================================================================

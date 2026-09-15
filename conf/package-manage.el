@@ -287,6 +287,13 @@
 ;;                 別ウィンドウの設定
 ;;----------------------------------------------------------------------------------------
 
+;; 子フレームでポップアップを出すための基盤。ウィンドウ分割を崩さずに
+;; 入力欄や一覧を浮かせられる。AIコマンド検索(conf/ai-agent.el)から使う。
+;; GUI専用のため、使う側で display-graphic-p / posframe-workable-p を確認すること。
+(use-package posframe
+  :straight t
+  :defer t)
+
 ;;最近開いたファイルを表示する
 (use-package recentf
   :straight t
