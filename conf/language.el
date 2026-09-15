@@ -132,6 +132,13 @@ enable-theme-functions からも呼んでテーマ切替(SPC t c)に追従させ
             n (1+ n)))
     file))
 
+(defvar my/org-clipboard-image-width 400
+  "貼り付けた画像を表示する幅(px)。nilなら幅を指定せず org-image-actual-width に従う。
+orgのインライン表示は幅しか指定できない(`org--create-inline-image' が :width しか
+渡さない)ため、高さは縦横比なりに決まる。スクリーンショットを貼ると画面いっぱいに
+出て会話が追えなくなるので、既定で小さく抑える。
+貼った後の増減は SPC m + / SPC m - / SPC m w でできる(同じ #+ATTR_ORG: :width を操作する)。")
+
 (defvar my/org-clipboard-image-directory
   (expand-file-name ".cache/clipboard-images/" user-emacs-directory)
   "ファイルを訪問していないorgバッファで、貼り付けた画像を置くディレクトリ。
@@ -175,6 +182,10 @@ C-u 付きで呼ぶと NAME を尋ねる(拡張子は不要)。"
       (unless (bolp) (insert "\n"))
       (unless (save-excursion (forward-line -1) (looking-at-p "^[ \t]*$"))
         (insert "\n"))
+      ;; 表示幅は #+ATTR_ORG で段落に付ける。my/org-image-enlarge 等が操作するのと
+      ;; 同じ行なので、貼った後にそのまま拡大縮小できる。
+      (when my/org-clipboard-image-width
+        (insert (format "#+ATTR_ORG: :width %d\n" my/org-clipboard-image-width)))
       (insert (format "[[file:%s]]\n" link))
       (unless (looking-at-p "^[ \t]*$")
         (save-excursion (insert "\n")))
