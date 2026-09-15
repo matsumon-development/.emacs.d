@@ -203,11 +203,11 @@
 (which-key-add-key-based-replacements "SPC f e d" "open-basic-config")
 
 (bind-key "SPC f e p"
-      '(lambda()
-         (interactive)
-         (switch-to-buffer
-          (find-file-noselect "~/.emacs.d/conf/package-manage.el")))
-      evil-normal-state-map)
+          '(lambda()
+             (interactive)
+             (switch-to-buffer
+              (find-file-noselect "~/.emacs.d/conf/package-manage.el")))
+          evil-normal-state-map)
 (which-key-add-key-based-replacements "SPC f e p" "open-pakage-manage-config")
 
 
@@ -444,13 +444,10 @@
 ;;-----------------------------------------------------------
 ;; whisper (音声入力)
 ;;-----------------------------------------------------------
-;; C-S-m(Ctrl+Shift+m)で録音開始/終了をトグルする。mはmicの頭文字で、右手の人差し指で打てる。
-;; (以前は C-S-w だったが、左手だけでCtrl+Shift+wを押すのが窮屈だったため移した)
+;; C-S-o(Ctrl+Shift+o)で録音開始/終了をトグルする。oは「音」、右手で打てる。
 ;; whisper-run 自体が「録音してなければ開始／録音中なら停止して文字起こし」のトグルなので、
 ;; 同じキーをもう一度押せば終了になる。
-;; 端末Emacsでは Ctrl+Shift+m が C-m(=RET) と区別されず、この束縛は発火しない。
-;; 代わりにRETが壊れることもないので、GUI専用の機能(要マイク)としては実害がない。
-(bind-key "C-S-m" 'whisper-run)
+(bind-key "C-S-o" 'whisper-run)
 
 ;; Visualステートの選択テキストをAIへ送る。
 ;;   c            … ai-compose(編集バッファ)へ集める(本体 my/send-visual-selection-to-compose)。
