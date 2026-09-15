@@ -132,10 +132,20 @@ enable-theme-functions からも呼んでテーマ切替(SPC t c)に追従させ
             n (1+ n)))
     file))
 
+(defvar my/org-clipboard-image-directory
+  (expand-file-name ".cache/clipboard-images/" user-emacs-directory)
+  "ファイルを訪問していないorgバッファで、貼り付けた画像を置くディレクトリ。
+gptelのチャットバッファのように保存先が決まっていない場所から貼るときに使う。
+OSの一時ディレクトリ(`temporary-file-directory')ではなく .cache 配下に置くのは、
+再起動や定期掃除で消えると、後からバッファをファイルへ保存したときにリンクが
+切れてしまうため。消えてよいなら `temporary-file-directory' に変えればよい。")
+
 (defun my/org-insert-clipboard-image (&optional name)
   "クリップボードの画像をPNGで保存し、リンクを挿入してインライン表示する。
-保存先はorgファイルと同じディレクトリ(ファイル未保存のバッファでは
-`default-directory')。ファイル名は「orgのファイル名-日時.png」を自動生成するが、
+保存先はorgファイルと同じディレクトリ。ファイルを訪問していないバッファでは
+`my/org-clipboard-image-directory' に置き、リンクは絶対パスで書く
+(`default-directory' が何であってもリンクが解決できるようにするため)。
+ファイル名は「orgのファイル名-日時.png」を自動生成するが、
 C-u 付きで呼ぶと NAME を尋ねる(拡張子は不要)。"
   (interactive
    (list (when current-prefix-arg
@@ -144,7 +154,7 @@ C-u 付きで呼ぶと NAME を尋ねる(拡張子は不要)。"
     (user-error "org-modeのバッファではありません"))
   (let* ((dir (if buffer-file-name
                   (file-name-directory buffer-file-name)
-                default-directory))
+                my/org-clipboard-image-directory))
          (base (or (and name (not (string-empty-p (string-trim name)))
                         (string-trim name))
                    (format "%s-%s"
@@ -152,7 +162,10 @@ C-u 付きで呼ぶと NAME を尋ねる(拡張子は不要)。"
                                (file-name-base buffer-file-name)
                              "clipboard")
                            (format-time-string "%Y%m%d-%H%M%S"))))
-         (file (my/org--unique-image-file dir base)))
+         (file (progn (make-directory dir t)
+                      (my/org--unique-image-file dir base)))
+         ;; ファイルを訪問していないバッファでは相対パスの起点が定まらないので絶対パスで書く
+         (link (if buffer-file-name (file-relative-name file dir) file)))
     (unless (my/clipboard-image-to-file file)
       (user-error "クリップボードに画像がありません"))
     ;; 画像は前後に空行を置いて、1枚ずつ独立した段落にする。
@@ -162,12 +175,12 @@ C-u 付きで呼ぶと NAME を尋ねる(拡張子は不要)。"
       (unless (bolp) (insert "\n"))
       (unless (save-excursion (forward-line -1) (looking-at-p "^[ \t]*$"))
         (insert "\n"))
-      (insert (format "[[file:%s]]\n" (file-relative-name file dir)))
+      (insert (format "[[file:%s]]\n" link))
       (unless (looking-at-p "^[ \t]*$")
         (save-excursion (insert "\n")))
       ;; 挿入した範囲だけを再描画する(バッファ全体を走査しないので大きなファイルでも軽い)
       (org-display-inline-images nil t start (point)))
-    (message "画像を保存: %s" (file-relative-name file dir))))
+    (message "画像を保存: %s" link)))
 
 ;; クリップボードに画像があるときだけ、p(貼り付け)を画像の貼り付けにする。
 ;; 画像をコピーした直後にそのまま p を押せるようにするのが目的で、

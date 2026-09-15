@@ -1200,8 +1200,15 @@ psの出力に鍵が現れないようにする。
 - 出力は整形後のテキストのみ。説明・前置き・コードブロックの囲みを付けない。")))
     (setf (alist-get (car directive) gptel-directives) (cdr directive)))
 
-  ;; gptelのバッファをポップアップではなく通常のバッファとして扱いやすくする設定
-  (setq gptel-default-mode 'markdown-mode))
+  ;; チャットバッファはorg-modeにする。応答は gptel-org-convert-response(既定t)で
+  ;; org記法へ変換される。org側には画像の貼り付け(my/org-paste-dwim / SPC m i)と
+  ;; インライン表示、表示幅の調整が既に用意してあり、そのまま使えるのが大きい。
+  (setq gptel-default-mode 'org-mode)
+
+  ;; org/markdownのリンク先が画像なら、それもLLMへ送る。
+  ;; これが無いとリンクは文字列としてしか渡らず、貼った画像について質問できない。
+  ;; 送信にはモデル側のmedia対応が要る(Gemini・Claude Haikuとも対応済み)。
+  (setq gptel-track-media t))
 
 ;; --- 音声入力(whisper)の書き起こしを整形する ---------------------------
 ;; whisperで入れたテキストは同音異義語の変換ミスと句読点の乱れが残るので、
