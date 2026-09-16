@@ -230,12 +230,26 @@ FILE(絶対パス)を省略した場合は一時ファイルへ書き出す。
    "end try")
   "クリップボードに画像があるかだけを調べるAppleScript(ファイルは作らない)。")
 
+(defconst my/clipboard-text-data-types '(NSStringPboardType UTF8_STRING STRING)
+  "クリップボードのテキストを取り出すときに試す data-type(先頭から順に試す)。
+emacs-mac(window-system が mac)では `gui-get-selection' に `STRING' や
+`UTF8_STRING' を渡しても常にnilが返る。この移植版がpasteboardのflavorに
+対応付けているシンボルは NSStringPboardType 等だけで(term/mac-win.el の
+`mac-setup-selection-properties')、テキストは NSStringPboardType
+\(= public.utf8-plain-text\)から取る。他の環境向けに標準のシンボルも後ろに残す。")
+
 (defun my/clipboard-text-p ()
   "クリップボードに空でないテキストが載っていれば non-nil を返す。"
   (and (display-graphic-p)
-       (ignore-errors
-         (let ((str (gui-get-selection 'CLIPBOARD 'STRING)))
-           (and (stringp str) (not (string-empty-p str)))))))
+       (let ((types my/clipboard-text-data-types)
+             (found nil))
+         (while (and types (not found))
+           (let ((str (ignore-errors
+                        (gui-get-selection 'CLIPBOARD (car types)))))
+             (when (and (stringp str) (not (string-empty-p str)))
+               (setq found t)))
+           (setq types (cdr types)))
+         found)))
 
 (defun my/clipboard-image-p ()
   "macOSのクリップボードに画像が載っていれば non-nil を返す。
