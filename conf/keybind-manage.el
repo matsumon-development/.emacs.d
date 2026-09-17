@@ -53,6 +53,10 @@
   ;; プレビューの入切(既定はON。本体は conf/basic.el)。
   ;; Pのdired-do-printは使っていないので置き換える。
   (bind-key "P" 'my/dired-preview-mode dired-mode-map)
+  ;; r: カーソル行のファイルをリネーム(元の名前が入力欄に入る。本体は conf/mylisp.el)。
+  ;; 素の R(dired-do-rename)は移動先を聞く作りで、名前の一部だけ直す用途に向かない。
+  ;; まとめて直したいときは C-x C-q(wdired)でバッファ上を直接編集する。
+  (bind-key "r" 'my/rename-file-dwim dired-mode-map)
   (when (eq system-type 'darwin)
     (bind-key "O" 'dired-open-with-default-app dired-mode-map)
     (bind-key "F" 'dired-reveal-in-finder dired-mode-map))
@@ -175,20 +179,7 @@
 ;;;自作
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(bind-key "SPC f R"
-          '(lambda(new-name)
-             (interactive "sNew name: ")
-             (let ((name (buffer-name)) (filename (buffer-file-name)))
-               (if (not filename)
-                   (message "Buffer '%s' is not visiting a file!" name)
-                 (if (get-buffer new-name)
-                     (message "A buffer named '%s' already exists!" new-name)
-                   (rename-file filename new-name 1)
-                   (rename-buffer new-name)
-                   (set-visited-file-name new-name)
-                   (set-buffer-modified-p nil)
-                   (message "renamed")))))
-          evil-normal-state-map)
+(bind-key "SPC f R" 'my/rename-file-dwim evil-normal-state-map)
 (which-key-add-key-based-replacements "SPC f R" "rename file")
 
 ;;-----------------------------------------------------------

@@ -124,6 +124,43 @@ POSIXの定石の形に展開する。"
    buffer
    (cons (cons 'direction (my/monitor-split-side)) alist)))
 
+(defun my/rename-file--target ()
+  "リネーム対象のファイルを返す。dired ではカーソル行、それ以外は訪問中のファイル。"
+  (or (if (derived-mode-p 'dired-mode)
+          (ignore-errors (dired-get-filename nil t))
+        buffer-file-name)
+      (user-error "リネームできるファイルがありません")))
+
+(defun my/rename-file--do (file new-name)
+  "FILE を NEW-NAME にリネームする。相対名なら元と同じディレクトリに置く。"
+  (let* ((trimmed (string-trim new-name))
+         (new (expand-file-name trimmed (file-name-directory file))))
+    (when (string-empty-p trimmed)
+      (user-error "名前が空です"))
+    (when (equal (file-truename file) (file-truename new))
+      (user-error "名前が変わっていません"))
+    (if (derived-mode-p 'dired-mode)
+        (progn
+          (require 'dired-aux)
+          ;; dired-rename-file は、そのファイルを開いているバッファや
+          ;; 他の dired バッファの表示も追随させてくれる(素の rename-file にはない)
+          (dired-rename-file file new 1)
+          (revert-buffer)
+          (dired-goto-file new))
+      ;; Emacs 29 標準。ファイル・バッファ名・訪問先・VC状態をまとめて更新する
+      (rename-visited-file new))
+    (message "リネームしました: %s" (file-name-nondirectory new))))
+
+(defun my/rename-file-dwim (new-name)
+  "dired のカーソル行、または今のバッファのファイルをリネームする。
+入力欄は元のファイル名が入った状態で始まるので、一部だけ直せばよい。
+相対名なら元と同じディレクトリ、パスを書けば移動もできる。
+複数まとめて直したいときは dired で C-x C-q (wdired) を使う。"
+  (interactive
+   (list (read-string "新しい名前: "
+                      (file-name-nondirectory (my/rename-file--target)))))
+  (my/rename-file--do (my/rename-file--target) new-name))
+
 (defun my/copy-buffer-file-path ()
   "今のバッファが訪問しているファイルのフルパスをクリップボードへコピーする。
 ファイルを訪問していないバッファでは、代わりに `default-directory' を使う。
