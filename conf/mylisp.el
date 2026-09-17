@@ -151,15 +151,24 @@ POSIXの定石の形に展開する。"
       (rename-visited-file new))
     (message "リネームしました: %s" (file-name-nondirectory new))))
 
-(defun my/rename-file-dwim (new-name)
+(defun my/rename-file-dwim ()
   "dired のカーソル行、または今のバッファのファイルをリネームする。
 入力欄は元のファイル名が入った状態で始まるので、一部だけ直せばよい。
-相対名なら元と同じディレクトリ、パスを書けば移動もできる。
-複数まとめて直したいときは dired で C-x C-q (wdired) を使う。"
-  (interactive
-   (list (read-string "新しい名前: "
-                      (file-name-nondirectory (my/rename-file--target)))))
-  (my/rename-file--do (my/rename-file--target) new-name))
+そのままパスを書けば移動もできる。複数まとめて直すときは dired の
+C-x C-q (wdired) を使う。
+
+入力には `read-file-name' を使う。ivy(counsel)を有効にしているので、
+同じディレクトリの中身が候補に出て、そのままディレクトリを辿って移動先も
+選べる。素のミニバッファ入力より、移動を伴うリネームで手数が減る。"
+  (interactive)
+  (let* ((file (my/rename-file--target))
+         (old (file-name-nondirectory file))
+         (new-name (read-file-name "新しい名前: "
+                                   (file-name-directory file) ; 候補の起点
+                                   nil                        ; 既定値は使わない
+                                   nil                        ; 存在しない名前も許す
+                                   old)))                     ; 初期値=元の名前
+    (my/rename-file--do file new-name)))
 
 (defun my/copy-buffer-file-path ()
   "今のバッファが訪問しているファイルのフルパスをクリップボードへコピーする。
