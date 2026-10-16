@@ -404,6 +404,37 @@
     (kbd "C-c C-c") #'gptel-send
     (kbd "C-c C-k") #'gptel-abort))
 
+;;-----------------------------------------------------------
+;; AIのJSONストリーム受信
+;; 設定本体は conf/ai-client.el。ここではキーバインドのみ。
+;;-----------------------------------------------------------
+;; SPC a 直下は vterm版エージェント(claude/agy/bob)で埋まっているため、
+;; SPC a j 配下にまとめる(j = JSONストリーム)。
+;; gptel(SPC a l)とは用途が別で、こちらは「エージェントの動きをイベントとして
+;; 受けて描く」側。入口だけをleaderに置き、バッファ内の操作は下の mode-map へ。
+(which-key-add-key-based-replacements "SPC a j" "ai-stream(JSON)")
+(bind-key "SPC a j c" 'my/ai-stream-claude evil-normal-state-map)
+(bind-key "SPC a j g" 'my/ai-stream-gemini evil-normal-state-map)
+;; SPC a j m: 独自のOpenAI互換API(MY_LLM_*)。SSE対応モデルが限られるので、
+;; 非対応のモデルを選んだ場合は起動前にエラーで弾かれる(本体側で判定)。
+(bind-key "SPC a j m" 'my/ai-stream-myllm evil-normal-state-map)
+(bind-key "SPC a j k" 'my/ai-stream-abort evil-normal-state-map)
+(which-key-add-key-based-replacements "SPC a j c" "claude")
+(which-key-add-key-based-replacements "SPC a j g" "gemini")
+(which-key-add-key-based-replacements "SPC a j m" "myllm")
+(which-key-add-key-based-replacements "SPC a j k" "abort")
+
+;; 描画バッファ内のキー。
+;;   TAB     … 思考(thinking)の開閉(既定では畳んである)
+;;   C-c C-k … 実行中のストリームを中止(gptel・composeバッファと指を揃える)
+;; special-mode派生でevilのnormal-stateになるが、TAB は normal で
+;; evil-jump-forward に束縛済みのため、mode-mapに置くだけでは効かない。
+;; evil-define-key で上書きする。
+(with-eval-after-load 'evil
+  (evil-define-key 'normal my/ai-stream-mode-map
+    (kbd "TAB") #'my/ai-stream-toggle-thinking
+    (kbd "C-c C-k") #'my/ai-stream-abort))
+
 ;; 各AIエージェントのバッファ内キーバインド。
 ;;   q        … ウィンドウを閉じる(バッファ・プロセスは残す。normal-stateのみ)
 ;;   C-c C-w … 別フレームから元のフレームの分割ウィンドウへ戻す

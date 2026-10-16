@@ -22,6 +22,7 @@ init.el と conf/ 以下の *.el は役割で分割している。新しい設�
 | basic.el          | フォント・見た目・Dired基本設定・バックアップ設定・PATH同期など、Emacs本体の基礎設定。パッケージへの依存が薄い設定が中心。                                                      |
 | package-manage.el | straight.el/use-packageによる各種パッケージの導入・設定(evil、補完(corfu/orderless/prescient)、Magit、vterm、gptel等)。プログラミング言語以外の汎用パッケージはここに集約する。 |
 | ai-agent.el       | AIエージェントCLI(claude/agy/bob)のvterm起動設定と、gptel・whisperの設定。                                                                                                      |
+| ai-client.el      | AIの応答をJSONストリーム(claude CLI / Gemini API / 独自OpenAI互換API)として受け、ツール呼び出しや思考をEmacsのバッファへ描くクライアント。                                      |
 | language.el       | プログラミング言語・マークアップ/データ形式のメジャーモード、および言語サーバ(eglot)・Lintの設定。                                                                              |
 | mylisp.el         | 既存パッケージに依存しない自作のユーティリティ関数(OS標準アプリで開く、Boxnote作成 等)。                                                                                        |
 | mail.el           | メール(mu4e)の設定。mu4eのelispは mu 本体に同梱されるため straight 管理外で、mu が入っていない環境では設定ごと無効になる(下記「メール(mu4e)」参照)。                            |
@@ -464,6 +465,77 @@ ditto /opt/homebrew/opt/emacs-mac@29/Emacs.app          /Applications/Emacs-mac2
 
 注: 両 app とも bundle id は ~org.gnu.Emacs~ で重複するが、Alfred はパス/名前(=Emacs-plus30= / =Emacs-mac29=)で
 起動するため実用上は問題ない。
+
+** AIのJSONストリーム受信 (conf/ai-client.el)
+
+AIの応答を「端末の画面」ではなく「構造化イベント」としてEmacsへ取り込む層。
+~conf/ai-agent.el~ のCLI統合(claude/agy/bob)はTUIをvtermで動かす方式で、画面には
+ANSIエスケープ付きの文字しか来ないため、Emacs側は「いま何が起きたか」を知れない
+(セッションを読むには ~my/claude-code-show-session~ で後からJSONLを読み直すしかない)。
+ここでは最初から機械可読なストリームを受ける。
+
+*** 構成
+
+扱う提供側は3つ。違うのは「行からJSONを取り出す方法」と「JSONの形」だけなので、
+その2つだけを差し替え可能にし(リーダ + 正規化関数)、以降の描画は共通にする。
+
+#+begin_example
+プロセス出力 → リーダ(行→JSON) → 正規化関数(JSON→イベント) → 描画 / フック
+#+end_example
+
+| 提供側             | リーダ        | ストリーミングの指定方法                                                |
+|--------------------+---------------+-------------------------------------------------------------------------|
+| claude CLI         | ~stream-json~ | ~--output-format stream-json~(~-p~ と ~--verbose~ が必須)               |
+| Gemini API         | ~sse~         | メソッドを変える: ~:generateContent~ → ~:streamGenerateContent?alt=sse~ |
+| MyLLM (OpenAI互換) | ~sse~         | エンドポイントは同じまま、bodyに ~"stream": true~                       |
+
+ストリーミングの指定方法は提供側でまったく違う。特にMyLLMは正規のやり方
+(メソッドやパスの切り替え)ではなく、bodyのフラグだけでSSEになる独自仕様。
+
+正規化後のイベント種別は ~text~ / ~thinking~ / ~tool-call~ / ~tool-result~ / ~done~ /
+~error~ / ~other~ の7つに限る。提供側が増えても描画側は変えない。
+知らない種別は捨てずに ~other~ として1行で残す(仕様変更に気付けるようにするため)。
+
+ツール呼び出しの承認や実行は描画とは別の関心事なので、ここでは行わず
+~my/ai-stream-event-functions~(フック)を通す。Gemini のように ~functionCall~ を
+自分で実行して ~functionResponse~ を返す必要がある提供側では、このフックから実装する。
+
+*** gptel との棲み分け
+
+単発のチャット・リライトは gptel(~conf/ai-agent.el~ 第6節)の方が良く出来ているので
+そのまま使い、ai-client は「エージェントの動きをEmacs側で受けて描く」用途だけを持つ。
+
+*** 前提
+
+- claude … ~claude~ CLI がPATHにあること。APIキーではなくCLI側のログインで動く。
+  ~stream-json~ は ~--print~(-p)と ~--verbose~ の併用が必須
+  (無いと =When using --print, --output-format=stream-json requires --verbose= で起動に失敗する)。
+- Gemini … ~curl~ と環境変数 ~GEMINI_API_KEY~。APIキーはコマンドライン引数に置かず、
+  URL・ヘッダ・本文をまとめたcurl設定を標準入力から渡す(~ps~ の出力に鍵を出さないため)。
+- MyLLM … ~curl~ と ~MY_LLM_HOST~ / ~MY_LLM_ENDPOINT~ / ~MY_LLM_API_KEY~。
+  サーバ側がSSEに対応しているモデルが ~gemini-*-flash~ / ~claude-haiku-*~ /
+  ~claude-sonnet-*~ / ~claude-opus-*~ に限られるため、
+  ~my/ai-stream-myllm-sse-models~ で絞り、非対応のモデルは起動前に弾く
+  (非対応モデルに ~stream: true~ を投げるとSSEではない応答が返り、
+  ~data:~ 行が1つも来ないまま何も表示されずに終わるため)。
+  モデルは ~my/ai-stream-myllm-model~、未設定なら ~MY_LLM_FAST_MODEL~、
+  それも無ければ実行時に選ぶ(一覧はgptelのMyLLMバックエンドから借りる)。
+  指定は完全一致ではなく部分一致で扱う。サーバ側のモデルは日々版が上がるため
+  (~gemini-3.6-flash~ → ~gemini-3.7-flash~ 等。接続先はおそらくBedrock経由で、
+  ゲートウェイがモデルIDを付け替えている)、完全一致で持つと版が上がった日から
+  存在しないモデルを指してしまう。~"gemini"~ のように版を含めず書いておけば追随する。
+  一覧に一致するものが無ければ知らせて選び直させる(黙って別のモデルに落とさない)。
+  一覧自体が古いときは ~M-x my/gptel-myllm-refresh-models~ で取り直す。
+
+OpenAI互換だけはツール呼び出しの届き方が違う。claude/Geminiは1イベントに引数まで
+揃って来るが、OpenAI互換は ~delta.tool_calls~ の ~function.arguments~ が
+JSON文字列の断片として複数チャンクに割れて届くため、~index~ ごとに溜めて
+~finish_reason~(または ~[DONE]~)の時点で1件にまとめている。
+
+*** キーバインド
+
+~conf/keybind-manage.el~ の「AIのJSONストリーム受信」節(~SPC a j~ 配下)。
+バッファ内では ~TAB~ で思考(thinking)の開閉、~C-c C-k~ で中止。
 
 ** メール (mu4e)
 

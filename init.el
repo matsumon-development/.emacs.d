@@ -115,5 +115,8 @@
 (load "ai-agent")
 (load "language")
 (load "mylisp")
+;; ai-client は mylisp の後。表示位置の決定に my/display-buffer-by-monitor-orientation
+;; を使うため(ai-agent の my/ai-agent-project-root にも依存するので ai-agent より後)。
+(load "ai-client")
 (load "mail")
 (load "keybind-manage")
