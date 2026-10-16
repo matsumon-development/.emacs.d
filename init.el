@@ -115,4 +115,5 @@
 (load "ai-agent")
 (load "language")
 (load "mylisp")
+(load "mail")
 (load "keybind-manage")

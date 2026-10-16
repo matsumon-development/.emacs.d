@@ -21,8 +21,10 @@ init.el と conf/ 以下の *.el は役割で分割している。新しい設�
 |-------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | basic.el          | フォント・見た目・Dired基本設定・バックアップ設定・PATH同期など、Emacs本体の基礎設定。パッケージへの依存が薄い設定が中心。                                                      |
 | package-manage.el | straight.el/use-packageによる各種パッケージの導入・設定(evil、補完(corfu/orderless/prescient)、Magit、vterm、gptel等)。プログラミング言語以外の汎用パッケージはここに集約する。 |
+| ai-agent.el       | AIエージェントCLI(claude/agy/bob)のvterm起動設定と、gptel・whisperの設定。                                                                                                      |
 | language.el       | プログラミング言語・マークアップ/データ形式のメジャーモード、および言語サーバ(eglot)・Lintの設定。                                                                              |
 | mylisp.el         | 既存パッケージに依存しない自作のユーティリティ関数(OS標準アプリで開く、Boxnote作成 等)。                                                                                        |
+| mail.el           | メール(mu4e)の設定。mu4eのelispは mu 本体に同梱されるため straight 管理外で、mu が入っていない環境では設定ごと無効になる(下記「メール(mu4e)」参照)。                            |
 | keybind-manage.el | 全てのキーバインド定義。パッケージ設定側にキーバインドを書かず、ここに集約して一覧性を保つ。                                                                                    |
 
 load順が重要になる場合がある(例: keybind-manage.el は package-manage.el で定義された関数・キーマップを参照するため最後に読み込む)。
@@ -52,6 +54,7 @@ load順が重要になる場合がある(例: keybind-manage.el は package-mana
 |  8 | Rust (rustup)                      | Rustの編集・rust-analyzer(言語サーバ)に必要。~brew install rustup~ → ~rustup default stable~                                                                   |
 |  9 | .NET SDK                           | Bicepの言語サーバ(Bicep.LangServer.dll)の実行に必要。~brew install dotnet~                                                                                     |
 | 10 | [[https://github.com/astral-sh/uv][uv]]                                 | Python製CLI(cfn-lint等)の導入に使う。~brew install uv~。導入先の ~~/.local/bin~ にPATHを通すこと(~uv tool update-shell~)                                       |
+| 11 | (任意) [[https://www.djcbsoftware.nl/code/mu/][mu]] / isync / msmtp          | メール(mu4e)を使う場合のみ必要。~brew install mu isync msmtp~。mu4eのelispはmuに同梱されstraight管理外(下記「メール(mu4e)」参照)                              |
 
 
 *** macOSのEmacsビルド (emacs-mac)
@@ -461,6 +464,183 @@ ditto /opt/homebrew/opt/emacs-mac@29/Emacs.app          /Applications/Emacs-mac2
 
 注: 両 app とも bundle id は ~org.gnu.Emacs~ で重複するが、Alfred はパス/名前(=Emacs-plus30= / =Emacs-mac29=)で
 起動するため実用上は問題ない。
+
+** メール (mu4e)
+
+マウスを使わずEmacs内でメールを読み書きするための設定。設定は ~conf/mail.el~、キーバインドは
+~conf/keybind-manage.el~ の「メール (mu4e)」節(~SPC M~ 配下)。
+
+役割分担は下記のとおりで、Emacs自身はIMAP/SMTPを喋らない(通信を外部コマンドに任せることで、
+同期中にEmacsがブロックされず、CLIからも同じ状態を再現できる)。
+
+| 役割           | コマンド | 備考                                                     |
+|----------------+----------+----------------------------------------------------------|
+| 受信(IMAP同期) | mbsync   | isyncパッケージ。IMAP ⇔ ローカルMaildir(~~/Mail~)        |
+| 索引・検索     | mu       | Maildirをインデックス。mu4eのelispもこれに同梱される     |
+| 送信(SMTP)     | msmtp    | パスワードはmacOSキーチェーンから取り出す                |
+
+*** straight管理外である理由
+
+mu4e の elisp は MELPA ではなく検索エンジン本体 ~mu~ に同梱されて配布され、elispとバイナリの
+バージョンが食い違うと動かない。そのため mu4e だけは lockfile での固定から外し、Homebrewの
+~mu~ を正として ~:straight nil~ + load-path 追加で読み込んでいる。~conf/mail.el~ は ~mu~ の実行
+ファイルから同梱elispの場所を逆算し、*見つからなければ設定ごとスキップ* するので、mu を入れて
+いないマシンでも起動時にエラーにはならない(~SPC M m~ が未定義になるだけ)。
+
+*** 導入手順
+
+#+begin_src sh
+brew install mu isync msmtp
+#+end_src
+
+**** 1. アプリパスワードをキーチェーンへ
+
+Gmailは2段階認証を有効にしたうえで *アプリパスワード* を発行する(通常のログインパスワードでは
+IMAP/SMTPに繋がらない)。mbsyncとmsmtpの両方から同じ項目を参照する。
+
+#+begin_src sh
+security add-generic-password -s mbsync-gmail -a you@gmail.com -w
+# プロンプトにアプリパスワード(16桁、空白なし)を貼る
+#+end_src
+
+**** 2. 受信 (~/.mbsyncrc)
+
+Gmailのフォルダ名(~[Gmail]/送信済みメール~ 等)はアカウントの言語設定で変わりパスに全角が
+混ざるため、チャンネルごとにローカル側の名前を英語へ寄せる。~conf/mail.el~ の
+~mu4e-*-folder~ / ~mu4e-maildir-shortcuts~ はこの名前(~/gmail/inbox~ 等)に合わせてある。
+
+#+begin_src conf
+IMAPAccount gmail
+Host imap.gmail.com
+Port 993
+User you@gmail.com
+PassCmd "security find-generic-password -s mbsync-gmail -a you@gmail.com -w"
+TLSType IMAPS
+
+IMAPStore gmail-remote
+Account gmail
+
+MaildirStore gmail-local
+Path ~/Mail/gmail/
+Inbox ~/Mail/gmail/inbox
+SubFolders Verbatim
+
+Channel gmail-inbox
+Far :gmail-remote:INBOX
+Near :gmail-local:inbox
+Create Both
+Expunge Both
+SyncState *
+
+Channel gmail-sent
+Far :gmail-remote:"[Gmail]/送信済みメール"
+Near :gmail-local:sent
+Create Both
+Expunge Both
+SyncState *
+
+Channel gmail-drafts
+Far :gmail-remote:"[Gmail]/下書き"
+Near :gmail-local:drafts
+Create Both
+Expunge Both
+SyncState *
+
+Channel gmail-trash
+Far :gmail-remote:"[Gmail]/ゴミ箱"
+Near :gmail-local:trash
+Create Both
+Expunge Both
+SyncState *
+
+Channel gmail-archive
+Far :gmail-remote:"[Gmail]/すべてのメール"
+Near :gmail-local:archive
+Create Both
+Expunge Both
+SyncState *
+
+Group gmail
+Channel gmail-inbox
+Channel gmail-sent
+Channel gmail-drafts
+Channel gmail-trash
+Channel gmail-archive
+#+end_src
+
+リモート側の実際のフォルダ名は ~mbsync -l gmail~ で一覧できる。英語表示のアカウントなら
+~[Gmail]/Sent Mail~ 等になるので、~Far~ の値を実際の名前に合わせること。
+
+#+begin_src sh
+mbsync -l gmail   # リモートのフォルダ名を確認
+mbsync -a         # 初回同期(メール量によっては数十分かかる)
+#+end_src
+
+**** 3. 索引 (mu)
+
+#+begin_src sh
+mu init --maildir=~/Mail --my-address=you@gmail.com
+mu index
+#+end_src
+
+**** 4. 送信 (~/.msmtprc)
+
+パーミッションが緩いとmsmtpが起動を拒否するため ~chmod 600~ を忘れないこと。
+
+#+begin_src conf
+defaults
+auth on
+tls on
+tls_trust_file /etc/ssl/cert.pem
+logfile ~/.msmtp.log
+
+account gmail
+host smtp.gmail.com
+port 587
+from you@gmail.com
+user you@gmail.com
+passwordeval "security find-generic-password -s mbsync-gmail -a you@gmail.com -w"
+
+account default : gmail
+#+end_src
+
+#+begin_src sh
+chmod 600 ~/.msmtprc
+echo "test" | msmtp you@gmail.com   # 送信確認
+#+end_src
+
+**** 5. 環境変数
+
+このリポジトリは公開しているため、アドレス等の個人情報はファイルに書かず環境変数で渡す
+(gptelのAPIキーと同じ方針)。~.zshrc~ に下記を追加する。
+
+#+begin_src sh
+export MY_MAIL_ADDRESS="you@gmail.com"
+export MY_MAIL_FULL_NAME="Your Name"
+#+end_src
+
+*** キーバインド
+
+| キー      | 動作                                    |
+|-----------+-----------------------------------------|
+| ~SPC M m~ | mu4e を開く                             |
+| ~SPC M c~ | 新規メール作成                          |
+| ~SPC M s~ | 検索(mu のクエリ構文)                  |
+| ~SPC M u~ | 今すぐ受信(mbsync)して索引を更新        |
+
+mu4eのバッファ内(一覧・本文・作成)のキー操作は evil-collection の mu4e サポートに任せている
+(~conf/mail.el~ で ~(evil-collection-init 'mu4e)~ を呼ぶ)。移動が ~j/k~ になるなどvim風に
+置き換わるため、mu4e標準のキーとは一部異なる。実際の割り当ては各バッファで ~?~ または
+~C-h m~ で確認する。
+
+*** 運用メモ
+
+- 受信は5分ごとの自動更新(~mu4e-update-interval~)。手動で取りに行くときは ~SPC M u~。
+- mbsyncはファイル名を書き換えるため ~mu4e-change-filenames-when-moving~ を ~t~ にしている
+  (~nil~ のままだと同期のたびにメールが重複する)。
+- 送信控えはGmailがサーバ側で作るので、ローカルには保存しない設定にしている。
+- 本文の文字コードはUTF-8を優先させている。init.elで日本語環境にしている都合で、既定のままだと
+  ISO-2022-JPで送信され、絵文字や機種依存文字が化けるため。
 
 ** 別マシンへの移行 (straight.el)
 

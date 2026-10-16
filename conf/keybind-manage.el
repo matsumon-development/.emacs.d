@@ -515,3 +515,22 @@
   ;; プレーン端末はemacs-stateなので、この素のvterm-mode-map束縛で効く
   ;; (C-hのhelpプレフィックスもvterm内でのみ上書きされる)。
   (define-key vterm-mode-map (kbd "C-h") #'vterm-send-backspace))
+
+
+;;-----------------------------------------------------------
+;; メール (mu4e)
+;;-----------------------------------------------------------
+;; SPC m は Markdown/Org のプレビュー・画像操作で埋まっているため、メールは
+;; 大文字の SPC M に割り当てる。mu4e は mu 未導入の環境では有効にならない
+;; (conf/mail.el 側で判定)ので、そのときはコマンド未定義エラーになる。
+;; バッファ内の操作(移動・アーカイブ・返信等)は evil-collection の
+;; mu4e サポートに任せる(有効化は conf/mail.el)。
+(which-key-add-key-based-replacements "SPC M" "mail(mu4e)")
+(bind-key "SPC M m" 'mu4e evil-normal-state-map)
+(bind-key "SPC M c" 'mu4e-compose-new evil-normal-state-map)
+(bind-key "SPC M s" 'mu4e-search evil-normal-state-map)
+(bind-key "SPC M u" 'mu4e-update-mail-and-index evil-normal-state-map)
+(which-key-add-key-based-replacements "SPC M m" "mu4e")
+(which-key-add-key-based-replacements "SPC M c" "compose-new")
+(which-key-add-key-based-replacements "SPC M s" "search")
+(which-key-add-key-based-replacements "SPC M u" "fetch-and-index")

@@ -44,6 +44,7 @@ GNU Emacs(30以降を前提)の設定を、既存の構成・思想を壊さず�
 | `conf/language.el` | プログラミング言語・マークアップ/データ形式のメジャーモード、言語サーバ(eglot)・Lintの設定。 |
 | `conf/ai-agent.el` | AIエージェントCLI(claude/agy/bob)のvterm起動設定と、gptel・whisperの設定。 |
 | `conf/mylisp.el` | 既存パッケージに依存しない自作ユーティリティ関数。 |
+| `conf/mail.el` | メール(mu4e)の設定。mu4eのelispは `mu` 本体に同梱されるため straight 管理外(`:straight nil` + load-path追加)で、`mu` 未導入の環境では設定ごと無効になる。 |
 | `conf/keybind-manage.el` | **全キーバインド定義**。パッケージ設定側にキーバインドを書かず、ここへ集約する。load順の都合で最後に読み込まれる。 |
 
 load順が重要な場合があります(例: `keybind-manage.el` は `package-manage.el` で定義された関数・キーマップを参照するため最後に読み込む)。
