@@ -442,6 +442,13 @@ codesign --force --deep --sign - --entitlements /tmp/mic.entitlements "$APP"
   対象アプリを終了してから実行する。Gatekeeper が文句を言うときは
   ~xattr -dr com.apple.quarantine "$APP"~。*アプリを更新・再インストールすると署名は元に戻る* ので都度やり直す。
 
+*** 多チャンネル入力 (Audient iD14)
+
+話した内容と無関係な文章が出る場合は、録音に別のチャンネルの音が混ざっている。Audient iD14 は
+全 12ch をそのまま渡し、マイクは 1ch 目、11/12ch には Mac の再生音らしき音が入る。そのため
+~conf/ai-agent.el~ の ~my/whisper--record-first-channel~ で 1ch 目だけを録音している。
+マイクを別の入力端子に挿す場合は ~pan=mono|c0=c0~ の右辺(~c0~ が 1ch 目)を変える。
+
 *** アプリ配置 (Alfred から起動できるように)
 
 emacs-plus / emacs-mac の Emacs.app は Cellar(=/opt/homebrew/...=)にあり Alfred/Spotlight が拾えないため、

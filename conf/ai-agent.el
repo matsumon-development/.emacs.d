@@ -1610,6 +1610,17 @@ MyLLM のモデル一覧が機械ごとに違うため、環境変数 MY_LLM_FAS
 ;;   前提: ffmpeg / cmake / C++コンパイラ / git (いずれも導入済み前提)。
 ;;   whisper.el 自体は MELPA に無いため straight の git レシピで取得する。
 ;;   キーバインド(C-S-w)は思想どおり keybind-manage.el 側に置く。
+;; Audient iD14 は入力全12chをそのまま渡してくる(マイクは1ch目、11/12chには
+;; Macの再生音らしき音が入る)。whisper.cpp がこれをモノラルへ混ぜると声より
+;; 再生音が勝って別の文章に化けるため、録音時点でマイクの1ch目だけを残す。
+(defun my/whisper--record-first-channel (command)
+  "ffmpegの録音COMMANDに、1ch目だけをモノラルで残すフィルタを足す。
+既存ファイルの変換(`whisper--ffmpeg-input-file')では全chが必要なので触らない。"
+  (if whisper--ffmpeg-input-file
+      command
+    ;; 出力オプションは出力ファイル名より前に置く必要がある。
+    (append (butlast command) '("-af" "pan=mono|c0=c0") (last command))))
+
 (use-package whisper
   :straight (whisper :type git :host github :repo "natrys/whisper.el" :branch "master")
   :commands (whisper-run)
@@ -1622,6 +1633,7 @@ MyLLM のモデル一覧が機械ごとに違うため、環境変数 MY_LLM_FAS
 
   ;; --- macOS: 録音デバイス(avfoundation)の指定 ---
   (setq whisper--ffmpeg-input-device ":default")
+  (advice-add 'whisper--record-command :filter-return #'my/whisper--record-first-channel)
 
   ;; --- macOS: マイク使用許可 ---
   ;; 上記デバイスを設定した上で初めて録音を試みると、macOS がマイク許可を求める。
