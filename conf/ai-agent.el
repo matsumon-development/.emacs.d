@@ -935,28 +935,41 @@ vtermバッファならそのvtermへ送る。"
         (push pbuf my/ai-compose--preview-buffers)))
     (message "画像を添付: %s" file)))
 
+(defun my/ai-compose--insert-below-line (payload)
+  "PAYLOADをカーソル行の下に挿入し、カーソルは元の位置に留める。
+選択を集めた後はその上に指示文を書くことが多いため、カーソル位置へ直接
+挿入して後ろへ押し出されるより、カーソル行を空けたまま下へ足す方が打ちやすい。"
+  (save-excursion
+    ;; 行末に改行+本文を足す。末尾の改行は元の行の改行を流用するので落とす
+    ;; (落とさないと次の行との間に余計な空行ができる)。
+    ;; 空行(point=行末)でも save-excursion のマーカーは挿入位置の前に残るため、
+    ;; カーソルは元の行に留まる。
+    (end-of-line)
+    (insert "\n" (string-trim-right payload "\n"))))
+
 (defun my/send-visual-selection-to-compose ()
   "Visualステートで選択中のテキストを、ファイルパスと行:列範囲付きで
 ai-composeバッファへ挿入する(vtermのプロンプトへ直接送るのではなく編集バッファへ集める)。
-既にai-composeバッファが開いていればそのカーソル位置に挿入し、
-無ければ新規にai-composeを開いて挿入する。"
+既にai-composeバッファが開いていればそのカーソル行の下に挿入し、
+無ければ新規にai-composeを開き、先頭の空行にカーソルを置いたままその下へ挿入する。"
   (interactive)
   (let ((payload (my/ai--visual-selection-payload))
         (existing (get-buffer my/ai-compose-buffer-name)))
     (evil-normal-state)
     (if existing
         ;; 既に開いている: そのウィンドウを選び(表示されていなければ表示し)、
-        ;; そのバッファのカーソル位置(point)に挿入する。
+        ;; そのバッファのカーソル行の下に挿入する。
         (progn
           (let ((win (get-buffer-window existing t)))
             (if win
                 (progn (select-frame-set-input-focus (window-frame win))
                        (select-window win))
               (pop-to-buffer existing)))
-          (insert payload))
-      ;; 無ければ新規にai-composeを開き(空バッファの先頭)、そこへ挿入する。
+          (my/ai-compose--insert-below-line payload))
+      ;; 無ければ新規にai-composeを開き、先頭の空行の下へ挿入する
+      ;; (カーソルは先頭の空行に残り、すぐ指示文を書ける)。
       (my/ai-agent-compose)
-      (insert payload))))
+      (my/ai-compose--insert-below-line payload))))
 
 ;; =====================================================================
 ;; 6. gptel 設定（エディタ一体型インライン書き換え & チャット用）

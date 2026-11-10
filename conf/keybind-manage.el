@@ -473,7 +473,7 @@
 
 ;; Visualステートの選択テキストをAIへ送る。
 ;;   c            … ai-compose(編集バッファ)へ集める(本体 my/send-visual-selection-to-compose)。
-;;                  既に開いていればカーソル位置に挿入、無ければ開いて挿入する。
+;;                  既に開いていればカーソル行の下に挿入、無ければ開いて先頭の空行の下に挿入する。
 ;;   SPC a s s    … デフォルトのAIツール(SPC a a で切替)のプロンプトへ直接送る
 ;;   SPC a s c/g/b … claude / agy / bob のプロンプトへ直接送る
 ;;   SPC a s t    … vtermを使わず、外部ターミナルのtmuxペイン(my/ai-tmux-target)へ送る
